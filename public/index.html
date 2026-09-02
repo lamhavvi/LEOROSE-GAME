@@ -427,6 +427,15 @@
             allUsersData = data.users;
         });
 
+        // Lắng nghe sự kiện nạp/rút tiền trực tiếp từ Admin (Cập nhật không cần F5)
+        socket.on('balanceUpdated', (data) => {
+            if (currentUser && allUsersData[currentUser]) {
+                allUsersData[currentUser].balance = data.newBalance;
+            }
+            document.getElementById('money').innerText = data.newBalance.toLocaleString('en-US').replace(/,/g, ".");
+            appendStatus(`💰 Tài khoản của bạn vừa được cập nhật số dư mới: <b>${data.newBalance.toLocaleString('en-US').replace(/,/g, ".")} 🪙</b>`);
+        });
+
         socket.on('timerUpdate', (time) => {
             document.getElementById('countdown').innerText = time;
             if (time <= 5 && time > 0) {
