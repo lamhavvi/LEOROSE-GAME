@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trường Đua Ngựa 3D - Online Server</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script type="text/javascript">
+        (function() {
+            emailjs.init("dfcOxlMoT9v8k7thl");
+        })();
+    </script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0b1329; color: #fff; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 15px; overflow-x: hidden; }
+        
+        .top-bar { width: 100%; max-width: 1550px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: rgba(0,0,0,0.4); padding: 10px 20px; border-radius: 8px; border: 1px solid #34495e; }
+        .user-info { font-size: 16px; color: #2ecc71; font-weight: bold; }
+        .logout-btn { background: #e74c3c; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        
+        h1 { margin-bottom: 5px; color: #f1c40f; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); text-align: center; }
+        #timer-box { font-size: 15px; color: #00cec9; margin-bottom: 10px; font-weight: bold; background: rgba(0,0,0,0.4); padding: 5px 15px; border-radius: 20px; border: 1px solid #00cec9; text-align: center; display: inline-block; }
+
+        #main-game-wrapper { width: 100%; max-width: 1550px; display: flex; flex-direction: column; align-items: center; }
+        .locked-overlay { filter: blur(8px); pointer-events: none; user-select: none; opacity: 0.3; }
+
+        .game-layout-grid {
+            display: grid;
+            grid-template-columns: 280px 1150px 280px;
+            gap: 15px;
+            align-items: start;
+            justify-content: center;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        .sidebar-left { display: flex; flex-direction: column; gap: 15px; }
+        .sidebar-right { display: flex; flex-direction: column; gap: 15px; }
+        .center-column { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+
+        .box { background: rgba(0, 0, 0, 0.75); padding: 15px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); border: 1px solid #34495e; width: 100%; position: relative; }
+        .box h3 { margin-bottom: 10px; color: #f1c40f; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 5px; font-size: 14px; }
+        
+        .bet-group { margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+        select, input { padding: 7px; border-radius: 5px; border: 1px solid #bdc3c7; background: #2c3e50; color: white; font-size: 14px; width: 100%; }
+        .balance { font-size: 16px; color: #2ecc71; font-weight: bold; margin-bottom: 8px; }
+
+        .confirm-bet-btn { background: linear-gradient(to bottom, #27ae60, #219653); color: white; border: none; padding: 8px; font-size: 13px; font-weight: bold; border-radius: 5px; cursor: pointer; width: 100%; }
+        
+        .result-box-left { font-size: 13px; color: #ecf0f1; line-height: 1.5; height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .history-box-left { font-size: 12px; color: #ecf0f1; height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+        .history-item { padding: 5px 8px; border-radius: 4px; border-left: 3px solid #7f8c8d; background: rgba(255,255,255,0.05); }
+        .history-item.win { border-left-color: #2ecc71; background: rgba(46, 204, 113, 0.1); }
+        .history-item.lose { border-left-color: #e74c3c; background: rgba(231, 76, 60, 0.1); }
+
+        .status-badge { background: rgba(52, 152, 219, 0.2); border-left: 3px solid #3498db; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+
+        .leaderboard-box { font-size: 13px; height: 195px; overflow-y: auto; color: #fff; line-height: 1.4; }
+        .leaderboard-item { display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.1); padding: 5px 0; }
+
+        /* QUẢN TRỊ ADMIN */
+        .admin-only-panel { background: rgba(192, 57, 43, 0.2); border: 2px dashed #e74c3c; display: none; width: 100%; margin-top: 5px; padding: 15px; border-radius: 10px; }
+        .admin-only-panel h3 { color: #e74c3c; border-bottom: 1px solid rgba(231, 76, 60, 0.3); }
+        .admin-stats-box { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 6px; font-size: 12px; max-height: 150px; overflow-y: auto; margin-top: 10px; border: 1px solid rgba(231, 76, 60, 0.4); }
+        .stat-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dotted rgba(255,255,255,0.1); }
+        
+        .admin-online-box { background: rgba(0,0,0,0.5); padding: 8px; border-radius: 6px; font-size: 12px; max-height: 130px; overflow-y: auto; margin-top: 10px; border: 1px solid rgba(46, 204, 113, 0.4); }
+        .online-user-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted rgba(255,255,255,0.1); color: #2ecc71; }
+
+        /* ĐƯỜNG ĐUA */
+        #track-container { width: 1150px; background: #1e3a1e; border: 6px solid #b8860b; border-radius: 12px; position: relative; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        .track-bg { height: 180px; background: linear-gradient(to bottom, #74b9ff 0%, #dfe6e9 50%, #27ae60 50%, #1e8449 100%); position: relative; border-bottom: 4px solid #fff; }
+        .fence { position: absolute; top: 85px; width: 100%; height: 10px; background: repeating-linear-gradient(90deg, #fff, #fff 30px, transparent 30px, transparent 60px); }
+        .finish-line { position: absolute; right: 120px; top: 90px; width: 10px; height: 90px; background: repeating-linear-gradient(0deg, #fff, #fff 10px, #000 10px, #000 20px); z-index: 5; }
+        .lane { height: 70px; border-bottom: 2px dashed rgba(255, 255, 255, 0.3); position: relative; display: flex; align-items: center; background-color: #27ae60; }
+        .lane:nth-child(even) { background-color: #229954; }
+        .horse-container { position: absolute; left: 10px; display: flex; align-items: center; z-index: 10; transition: transform 0.05s linear; }
+        .horse-icon { font-size: 45px; filter: drop-shadow(2px 3px 2px rgba(0,0,0,0.5)); transform: scaleX(-1); }
+        .horse-badge { background: rgba(0, 0, 0, 0.8); color: #f1c40f; padding: 3px 8px; border-radius: 4px; font-size: 13px; font-weight: bold; margin-left: 6px; border: 1px solid #f1c40f; }
+
+        /* MÀN HÌNH KẾT QUẢ GTA V RP */
+        #gta-results-overlay { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: linear-gradient(135deg, rgba(200, 30, 20, 0.95), rgba(50, 10, 10, 0.95)); 
+            z-index: 100; 
+            display: none; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 20px; 
+            border-radius: 8px;
+        }
+        .gta-results-header { background: #000; color: #f1c40f; padding: 6px 30px; font-size: 22px; font-weight: 900; letter-spacing: 3px; border: 3px solid #f1c40f; border-radius: 4px; margin-bottom: 20px; text-transform: uppercase; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.6); }
+        .gta-podium-container { display: flex; gap: 15px; align-items: flex-end; margin-bottom: 20px; }
+        
+        .gta-card { background: #121212; border: 3px solid #333; border-radius: 10px; width: 210px; display: flex; flex-direction: column; align-items: center; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.7); position: relative; }
+        .gta-card.first { border: 4px solid #f1c40f; width: 230px; background: #18180a; transform: translateY(-10px); box-shadow: 0 15px 35px rgba(241,196,15,0.3); }
+
+        .gta-wreath-wrapper { width: 110px; height: 100px; margin: 14px 0 4px 0; position: relative; display: flex; align-items: center; justify-content: center; background-color: rgba(255,255,255,0.05); border-radius: 50%; border: 2px dashed rgba(255,255,255,0.2); }
+        .gta-card.first .gta-wreath-wrapper { width: 130px; height: 120px; margin-top: 18px; border-color: #f1c40f; background: rgba(241,196,15,0.1); }
+
+        .gta-avatar-circle { font-size: 40px; display: flex; align-items: center; justify-content: center; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+        .gta-rank-badge { position: absolute; bottom: 2px; background: #e74c3c; color: white; font-size: 12px; font-weight: bold; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; z-index: 2; }
+        .gta-card.first .gta-rank-badge { background: #e74c3c; }
+
+        .gta-horse-name { font-size: 14px; font-weight: 900; color: #fff; margin: 4px 0 12px 0; text-align: center; text-transform: uppercase; padding: 0 8px; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+        
+        .gta-rank-label { width: 100%; background: #000; color: #bdc3c7; text-align: center; padding: 8px; font-weight: 900; font-size: 16px; letter-spacing: 1px; border-top: 2px solid #222; }
+        .gta-card.first .gta-rank-label { color: #f1c40f; font-size: 18px; border-top-color: #f1c40f; }
+
+        .gta-bet-again-btn { background: #111; color: #fff; border: 3px solid #fff; padding: 8px 30px; font-size: 14px; font-weight: 900; border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
+        .gta-bet-again-btn:hover { background: #f1c40f; color: #000; border-color: #f1c40f; }
+
+        /* POPUP GẤU NÂU CHIẾN THẮNG */
+        #win-bear-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.75); z-index: 200; justify-content: center; align-items: center; animation: fadeInModal 0.3s ease-in-out; }
+        .win-bear-card { background: linear-gradient(135deg, #fff5e6, #ffedd5); border: 4px solid #d97706; border-radius: 24px; padding: 25px 35px; text-align: center; color: #451a03; box-shadow: 0 20px 40px rgba(0,0,0,0.5); max-width: 380px; width: 90%; transform: scale(1); animation: bounceBearCard 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .bear-avatar { font-size: 90px; line-height: 1; animation: bounceEmoji 0.8s infinite alternate; }
+        .win-bear-title { font-size: 22px; font-weight: 900; color: #b45309; margin-bottom: 5px; text-transform: uppercase; }
+        .win-amount-badge { background: #f59e0b; color: #fff; padding: 10px 20px; border-radius: 50px; font-size: 22px; font-weight: 900; display: inline-block; margin-bottom: 20px; border: 2px solid #fff; box-shadow: 0 4px 10px rgba(245, 158, 11, 0.4); }
+        .win-bear-btn { background: #d97706; color: white; border: none; padding: 10px 30px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        .win-bear-btn:hover { background: #b45309; }
+
+        @keyframes fadeInModal { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes bounceBearCard { from { transform: scale(0.5); } to { transform: scale(1); } }
+        @keyframes bounceEmoji { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+
+        .modal { display: flex; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); justify-content: center; align-items: center; }
+        .modal-content { background: #1a252f; padding: 30px; border-radius: 10px; width: 380px; border: 1px solid #f1c40f; display: flex; flex-direction: column; gap: 15px; }
+        .modal-content h2 { color: #f1c40f; text-align: center; }
+        .modal-content button { width: 100%; padding: 10px; background: #2ecc71; border: none; color: white; font-weight: bold; border-radius: 5px; cursor: pointer; }
+        .switch-form { text-align: center; font-size: 14px; cursor: pointer; color: #3498db; text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <audio id="piuBumAudio" src="piubum.mp3" preload="auto"></audio>
+
+    <div class="top-bar">
+        <div class="user-info">👤 Tài khoản: <span id="current-username">Chưa đăng nhập</span></div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button onclick="testPlayAudio()" style="background: #f39c12; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">🔊 Test Âm Thanh</button>
+            <div id="auth-btn-container"></div>
+        </div>
+    </div>
+
+    <div id="main-game-wrapper" class="locked-overlay">
+        <h1>🐎 TRƯỜNG ĐUA NGỰA 3D 🐎</h1>
+        <div id="timer-box">⏱️ Thời gian tự động xuất phát: <span id="countdown">60</span>s</div>
+
+        <div class="game-layout-grid">
+            
+            <!-- CỘT TRÁI -->
+            <div class="sidebar-left">
+                <div class="box">
+                    <h3>🏁 Trạng Thái Ván Đấu</h3>
+                    <div id="result" class="result-box-left">
+                        <div class="status-badge">⏳ Hãy đặt cược và chờ cuộc đua bắt đầu!</div>
+                    </div>
+                </div>
+
+                <div class="box">
+                    <h3>📜 Lịch Sử Đặt Cược Của Tôi</h3>
+                    <div id="personalHistory" class="history-box-left">
+                        <div style="color: #bdc3c7; text-align: center; padding-top: 50px;">Chưa có lịch sử cược...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CỘT GIỮA -->
+            <div class="center-column">
+                <div id="track-container">
+                    <div class="track-bg"><div class="fence"></div></div>
+                    <div class="finish-line"></div>
+
+                    <div class="lane"><div class="horse-container" id="h0"><span class="horse-icon">🐎</span><span class="horse-badge">1. Xích Thố</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h1"><span class="horse-icon">🐎</span><span class="horse-badge">2. Bão Táp</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h2"><span class="horse-icon">🐎</span><span class="horse-badge">3. Sấm Sét</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h3"><span class="horse-icon">🐎</span><span class="horse-badge">4. Hỏa Tinh</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h4"><span class="horse-icon">🐎</span><span class="horse-badge">5. Bạch Long</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h5"><span class="horse-icon">🐎</span><span class="horse-badge">6. Hắc Phong</span></div></div>
+
+                    <!-- MÀN HÌNH KẾT QUẢ GTA V RP -->
+                    <div id="gta-results-overlay">
+                        <div class="gta-results-header">CENTERTIME RESULTS</div>
+                        <div class="gta-podium-container">
+                            <div class="gta-card">
+                                <div class="gta-wreath-wrapper">
+                                    <div class="gta-avatar-circle" id="res-2-img">🐎</div>
+                                    <div class="gta-rank-badge" id="res-2-num">2</div>
+                                </div>
+                                <div class="gta-horse-name" id="res-2-name">-</div>
+                                <div class="gta-rank-label">2ND</div>
+                            </div>
+                            <div class="gta-card first">
+                                <div class="gta-wreath-wrapper">
+                                    <div class="gta-avatar-circle" id="res-1-img">🐎</div>
+                                    <div class="gta-rank-badge" id="res-1-num">1</div>
+                                </div>
+                                <div class="gta-horse-name" id="res-1-name">-</div>
+                                <div class="gta-rank-label">1ST</div>
+                            </div>
+                            <div class="gta-card">
+                                <div class="gta-wreath-wrapper">
+                                    <div class="gta-avatar-circle" id="res-3-img">🐎</div>
+                                    <div class="gta-rank-badge" id="res-3-num">3</div>
+                                </div>
+                                <div class="gta-horse-name" id="res-3-name">-</div>
+                                <div class="gta-rank-label">3RD</div>
+                            </div>
+                        </div>
+                        <button class="gta-bet-again-btn" onclick="dismissGtaResults()">BET AGAIN</button>
+                    </div>
+
+                </div>
+
+                <!-- BẢNG ĐẶT CƯỢC -->
+                <div class="box" style="width: 100%;">
+                    <h3>💵 Bảng Đặt Cược</h3>
+                    <div class="balance">Số dư: <span id="money">0</span> 🪙</div>
+                    <div style="display: flex; gap: 15px;">
+                        <div class="bet-group" style="flex: 1;">
+                            <label>Chọn ngựa:</label>
+                            <select id="betHorse">
+                                <option value="0">1. Xích Thố</option>
+                                <option value="1">2. Bão Táp</option>
+                                <option value="2">3. Sấm Sét</option>
+                                <option value="3">4. Hỏa Tinh</option>
+                                <option value="4">5. Bạch Long</option>
+                                <option value="5">6. Hắc Phong</option>
+                            </select>
+                        </div>
+                        <div class="bet-group" style="flex: 1;">
+                            <label>Tiền cược:</label>
+                            <input type="text" id="betAmount" value="100">
+                        </div>
+                    </div>
+                    <button class="confirm-bet-btn" id="confirmBetBtn" onclick="confirmBet()">📝 Xác Nhận Đặt Cược</button>
+                    <div id="bet-status" style="font-size: 12px; color: #f1c40f; margin-top: 4px; text-align: center;">Chưa cược</div>
+                </div>
+
+                <!-- QUẢN TRỊ ADMIN -->
+                <div class="box admin-only-panel" id="box-admin-manage">
+                    <h3>🛠️ Bảng Quản Trị Chủ Web & Thống Kê</h3>
+                    
+                    <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                        <div class="bet-group" style="flex: 1;">
+                            <label>Tài khoản người chơi:</label>
+                            <input type="text" id="adminTargetUser" placeholder="Nhập tên user...">
+                        </div>
+                        <div class="bet-group" style="flex: 1;">
+                            <label>Số tiền:</label>
+                            <input type="text" id="adminAmount" value="1.000">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <button onclick="adminActionMoney('deposit')" style="background: #27ae60; padding: 8px; border:none; color:white; border-radius:5px; cursor:pointer; font-weight:bold; flex: 1;">➕ Nạp Tiền</button>
+                        <button onclick="adminActionMoney('withdraw')" style="background: #c0392b; padding: 8px; border:none; color:white; border-radius:5px; cursor:pointer; font-weight:bold; flex: 1;">➖ Rút Tiền</button>
+                    </div>
+                    
+                    <div class="bet-group" style="margin-bottom: 10px;">
+                        <label>🎯 Ép kết quả nhất:</label>
+                        <select id="adminFixedWinner" onchange="adminSetWinnerChoice()">
+                            <option value="random">Random ngẫu nhiên</option>
+                            <option value="0">1. Xích Thố</option>
+                            <option value="1">2. Bão Táp</option>
+                            <option value="2">3. Sấm Sét</option>
+                            <option value="3">4. Hỏa Tinh</option>
+                            <option value="4">5. Bạch Long</option>
+                            <option value="5">6. Hắc Phong</option>
+                        </select>
+                    </div>
+
+                    <h3 style="font-size: 13px; margin-top: 15px;">🟢 Người Chơi Đang Online</h3>
+                    <div class="admin-online-box" id="adminOnlineContent">
+                        <div style="color: #bdc3c7; text-align: center;">Đang cập nhật...</div>
+                    </div>
+
+                    <h3 style="font-size: 13px; margin-top: 15px;">📊 Thống Kê Cược Ván Này</h3>
+                    <div class="admin-stats-box" id="adminStatsContent">
+                        <div style="color: #bdc3c7; text-align: center;">Chưa có dữ liệu cược...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CỘT PHẢI -->
+            <div class="sidebar-right">
+                <div class="box">
+                    <h3>🟢 Bảng Thắng Cược Ván Trước</h3>
+                    <div id="leaderboardWin" class="leaderboard-box">
+                        <div style="color: #bdc3c7; text-align: center; padding-top: 20px;">Chưa có dữ liệu ván đấu nào...</div>
+                    </div>
+                </div>
+                <div class="box">
+                    <h3>🔴 Bảng Thua Cược Ván Trước</h3>
+                    <div id="leaderboardLose" class="leaderboard-box">
+                        <div style="color: #bdc3c7; text-align: center; padding-top: 20px;">Chưa có dữ liệu ván đấu nào...</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- POPUP GẤU NÂU -->
+    <div id="win-bear-modal">
+        <div class="win-bear-card">
+            <div class="bear-avatar">🐻</div>
+            <div class="win-bear-title">CHÚC MỪNG BẠN ĐÃ THẮNG CƯỢC!</div>
+            <div style="margin-bottom: 12px; color: #78350f; font-weight: 600; font-size: 14px;">Gấu Nâu trao thưởng:</div>
+            <div class="win-amount-badge">+<span id="win-bear-money">0</span> 🪙</div>
+            <div>
+                <button class="win-bear-btn" onclick="closeWinBearModal()">CẢM ƠN GẤU NÂU! 💖</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL ĐĂNG NHẬP -->
+    <div class="modal" id="loginModal">
+        <div class="modal-content">
+            <h2>Đăng Nhập Trường Đua</h2>
+            <input type="text" id="loginUser" placeholder="Tên tài khoản">
+            <input type="password" id="loginPass" placeholder="Mật khẩu">
+            <button onclick="sendLogin()">Đăng Nhập</button>
+            <div class="switch-form" onclick="toggleRegisterModal(true)">Chưa có tài khoản? Đăng ký</div>
+        </div>
+    </div>
+
+    <!-- MODAL ĐĂNG KÝ -->
+    <div class="modal" id="registerModal" style="display: none;">
+        <div class="modal-content" id="regFormStep1">
+            <h2>Đăng Ký Tài Khoản</h2>
+            <input type="text" id="regUser" placeholder="Tên tài khoản mới">
+            <input type="email" id="regEmail" placeholder="Email nhận mã xác nhận">
+            <input type="password" id="regPass" placeholder="Mật khẩu">
+            <button onclick="sendEmailJsOtp()" style="background: #27ae60;">Gửi Mã Xác Nhận Qua Gmail</button>
+            <div class="switch-form" onclick="toggleRegisterModal(false)">Đã có tài khoản? Đăng nhập</div>
+        </div>
+        <div class="modal-content" id="regFormStep2" style="display: none;">
+            <h2>Nhập Mã Xác Nhận</h2>
+            <p style="font-size: 13px; color: #bdc3c7; text-align: center;">Mã OTP 6 số đã được gửi vào Email của bạn.</p>
+            <input type="text" id="regOtp" placeholder="Nhập mã OTP (6 số)">
+            <button onclick="verifyEmailJsOtp()" style="background: #e67e22;">Xác Nhận & Hoàn Tất Đăng Ký</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentUser = null;
+        let allUsersData = {};
+        let isBetPlaced = false;
+        let lastPlacedBetAmount = 0;
+        let lastPlacedHorseIdx = -1;
+        let generatedOtp = "";
+        let tempRegData = {};
+
+        const horseNames = ["1. Xích Thố", "2. Bão Táp", "3. Sấm Sét", "4. Hỏa Tinh", "5. Bạch Long", "6. Hắc Phong"];
+
+        function testPlayAudio() {
+            let audio = document.getElementById('piuBumAudio');
+            if(audio) {
+                audio.currentTime = 0;
+                audio.play().then(() => {
+                    alert("Âm thanh hoạt động bình thường!");
+                }).catch(err => {
+                    alert("Trình duyệt chặn phát âm thanh!");
+                });
+            }
+        }
+
+        function playBeepSound(isHigh = false) {
+            try {
+                let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                let osc = audioCtx.createOscillator();
+                let gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = isHigh ? 880 : 440;
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch(e) {}
+        }
+
+        function formatNumberInput(e) {
+            let val = e.target.value.replace(/\D/g, "");
+            if (val === "") {
+                e.target.value = "";
+                return;
+            }
+            e.target.value = parseInt(val, 10).toLocaleString('en-US').replace(/,/g, ".");
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            ["loginUser", "loginPass"].forEach(id => {
+                let el = document.getElementById(id);
+                if(el) el.addEventListener("keypress", (e) => { if (e.key === "Enter") sendLogin(); });
+            });
+            ["regUser", "regEmail", "regPass"].forEach(id => {
+                let el = document.getElementById(id);
+                if(el) el.addEventListener("keypress", (e) => { if (e.key === "Enter") sendEmailJsOtp(); });
+            });
+            let regOtpEl = document.getElementById("regOtp");
+            if(regOtpEl) regOtpEl.addEventListener("keypress", (e) => { if (e.key === "Enter") verifyEmailJsOtp(); });
+
+            let betAmountEl = document.getElementById("betAmount");
+            if(betAmountEl) {
+                betAmountEl.addEventListener("input", formatNumberInput);
+                betAmountEl.addEventListener("keypress", (e) => { if (e.key === "Enter") confirmBet(); });
+            }
+
+            let adminAmountEl = document.getElementById("adminAmount");
+            if(adminAmountEl) {
+                adminAmountEl.addEventListener("input", formatNumberInput);
+            }
+        });
+
+        socket.on('initData', (data) => {
+            allUsersData = data.users;
+        });
+
+        socket.on('timerUpdate', (time) => {
+            document.getElementById('countdown').innerText = time;
+            if (time <= 5 && time > 0) {
+                appendStatus(`⚠️ Cuộc đua sắp xuất phát sau ${time}s!`);
+                playBeepSound(time === 1);
+            }
+        });
+
+        socket.on('horsePositions', (positions) => {
+            positions.forEach((pos, idx) => {
+                let el = document.getElementById('h' + idx);
+                if (el) el.style.left = pos + 'px';
+            });
+        });
+
+        socket.on('onlineUsersUpdate', (onlineList) => {
+            let onlineBox = document.getElementById('adminOnlineContent');
+            if (!onlineBox) return;
+            if (!onlineList || onlineList.length === 0) {
+                onlineBox.innerHTML = `<div style="color: #bdc3c7; text-align: center;">Không có ai online...</div>`;
+                return;
+            }
+            let html = '';
+            onlineList.forEach((username, idx) => {
+                html += `<div class="online-user-row"><span>🟢 ${idx+1}. ${username}</span><span><b>Online</b></span></div>`;
+            });
+            onlineBox.innerHTML = html;
+        });
+
+        socket.on('betStatsUpdate', (stats) => {
+            let statsBox = document.getElementById('adminStatsContent');
+            if (!stats || !stats.bets || stats.bets.length === 0) {
+                statsBox.innerHTML = `<div style="color: #bdc3c7; text-align: center;">Chưa có ai đặt cược ván này...</div>`;
+                return;
+            }
+
+            let horseTotals = [0,0,0,0,0,0];
+            stats.bets.forEach(b => { horseTotals[b.horseIdx] += b.amount; });
+            let maxAmount = Math.max(...horseTotals);
+            let topHorseIdx = horseTotals.indexOf(maxAmount);
+
+            let html = `<div style="color: #f1c40f; font-weight: bold; margin-bottom: 6px;">🔥 Đang dẫn đầu: ${maxAmount > 0 ? horseNames[topHorseIdx] + ' (' + maxAmount.toLocaleString('en-US').replace(/,/g, ".") + ' 🪙)' : 'Chưa có'}</div>`;
+            html += `<div style="border-top: 1px solid rgba(255,255,255,0.2); padding-top: 4px; margin-bottom: 6px;"><b>Chi tiết cược:</b></div>`;
+            stats.bets.forEach(b => {
+                html += `<div class="stat-row"><span>👤 ${b.username}</span><span><b>${horseNames[b.horseIdx]}</b>: ${b.amount.toLocaleString('en-US').replace(/,/g, ".")} 🪙</span></div>`;
+            });
+            statsBox.innerHTML = html;
+        });
+
+        socket.on('raceEnded', (data) => {
+            allUsersData = data.updatedUsers;
+            if (currentUser && allUsersData[currentUser]) {
+                document.getElementById('money').innerText = allUsersData[currentUser].balance.toLocaleString('en-US').replace(/,/g, ".");
+                renderPersonalHistory(allUsersData[currentUser].betHistory);
+            }
+
+            renderWinAndLoseLeaderboards(data.roundSummary);
+
+            updatePodiumCard(1, data.podium[1]);
+            updatePodiumCard(2, data.podium[2]);
+            updatePodiumCard(3, data.podium[3]);
+
+            appendStatus(`🏁 <b>Kết quả chung cuộc:</b><br>1st: ${data.podium[1].name}<br>2nd: ${data.podium[2].name}<br>3rd: ${data.podium[3].name}`);
+
+            let myResult = data.roundSummary.find(item => item.username === currentUser);
+            if (myResult && myResult.netProfit > 0) {
+                showWinBearModal(myResult.netProfit);
+                appendStatus(`🎉 Chúc mừng bạn đã thắng cược trận này!`);
+            } else if (isBetPlaced) {
+                appendStatus(`😢 Rất tiếc, ngựa bạn chọn đã thua.`);
+            }
+
+            document.getElementById('gta-results-overlay').style.display = 'flex';
+        });
+
+        function updatePodiumCard(rankPlace, podiumInfo) {
+            let nameEl = document.getElementById(`res-${rankPlace}-name`);
+            let numEl = document.getElementById(`res-${rankPlace}-num`);
+            let imgEl = document.getElementById(`res-${rankPlace}-img`);
+
+            if(nameEl) nameEl.innerText = podiumInfo.name;
+            if(numEl) numEl.innerText = podiumInfo.num;
+            if(imgEl) imgEl.innerText = "🐎";
+        }
+
+        socket.on('resetForNewRound', (data) => {
+            allUsersData = data.users;
+            if (currentUser && allUsersData[currentUser]) {
+                document.getElementById('money').innerText = allUsersData[currentUser].balance.toLocaleString('en-US').replace(/,/g, ".");
+            }
+            isBetPlaced = false;
+            lastPlacedBetAmount = 0;
+            lastPlacedHorseIdx = -1;
+            document.getElementById('confirmBetBtn').disabled = false;
+            document.getElementById('betHorse').disabled = false;
+            document.getElementById('betAmount').disabled = false;
+            document.getElementById('bet-status').innerText = "Chưa cược";
+            document.getElementById('gta-results-overlay').style.display = 'none';
+            document.getElementById('result').innerHTML = `<div class="status-badge">⏳ Ván mới bắt đầu! Hãy đặt cược.</div>`;
+            document.getElementById('adminStatsContent').innerHTML = `<div style="color: #bdc3c7; text-align: center;">Chưa có ai đặt cược ván này...</div>`;
+        });
+
+        socket.on('loginSuccess', (data) => {
+            currentUser = data.username;
+            allUsersData[currentUser] = data.userData;
+            document.getElementById('current-username').innerText = currentUser + (data.userData.isAdmin ? " (👑 Chủ Web)" : "");
+            document.getElementById('auth-btn-container').innerHTML = `<button class="logout-btn" onclick="location.reload()">Đăng Xuất</button>`;
+            document.getElementById('money').innerText = data.userData.balance.toLocaleString('en-US').replace(/,/g, ".");
+            document.getElementById('loginModal').style.display = 'none';
+            document.getElementById('main-game-wrapper').classList.remove('locked-overlay');
+
+            renderPersonalHistory(data.userData.betHistory);
+
+            if (data.activeBet) {
+                isBetPlaced = true;
+                lastPlacedBetAmount = data.activeBet.amount;
+                lastPlacedHorseIdx = data.activeBet.horseIdx;
+                document.getElementById('betHorse').value = data.activeBet.horseIdx;
+                document.getElementById('betAmount').value = data.activeBet.amount.toLocaleString('en-US').replace(/,/g, ".");
+                document.getElementById('confirmBetBtn').disabled = true;
+                document.getElementById('betHorse').disabled = true;
+                document.getElementById('betAmount').disabled = true;
+                document.getElementById('bet-status').innerText = "✅ Đã đặt cược (Khôi phục phiên)!";
+                appendStatus(`🔄 Đã khôi phục vé cược: <b>${data.activeBet.amount.toLocaleString('en-US').replace(/,/g, ".")} 🪙</b> vào <b>${horseNames[data.activeBet.horseIdx]}</b>`);
+            }
+
+            if (data.userData.isAdmin) {
+                document.getElementById('box-admin-manage').style.display = 'block';
+            }
+        });
+
+        socket.on('loginFail', (msg) => { alert(msg); });
+        
+        socket.on('registerSuccess', () => { 
+            alert("Đăng ký thành công! Số dư tài khoản hiện tại: 0🪙."); 
+            toggleRegisterModal(false); 
+        });
+        socket.on('registerFail', (msg) => { alert(msg); });
+
+        socket.on('betSuccess', (data) => {
+            document.getElementById('money').innerText = data.balance.toLocaleString('en-US').replace(/,/g, ".");
+            isBetPlaced = true;
+            document.getElementById('confirmBetBtn').disabled = true;
+            document.getElementById('betHorse').disabled = true;
+            document.getElementById('betAmount').disabled = true;
+            document.getElementById('bet-status').innerText = "✅ Đã đặt cược!";
+            
+            let hName = horseNames[lastPlacedHorseIdx];
+            appendStatus(`✅ Đã cược <b>${lastPlacedBetAmount.toLocaleString('en-US').replace(/,/g, ".")} 🪙</b> vào <b>${hName}</b>`);
+        });
+
+        socket.on('betFail', (msg) => { alert(msg); });
+        
+        socket.on('updateAllUsers', (users) => {
+            allUsersData = users;
+        });
+
+        function renderPersonalHistory(historyList) {
+            let container = document.getElementById('personalHistory');
+            if (!historyList || historyList.length === 0) {
+                container.innerHTML = `<div style="color: #bdc3c7; text-align: center; padding-top: 50px;">Chưa có lịch sử cược...</div>`;
+                return;
+            }
+
+            container.innerHTML = historyList.map(item => {
+                let itemClass = item.isWin ? 'history-item win' : 'history-item lose';
+                let profitText = item.isWin ? `+${item.netProfit.toLocaleString('en-US').replace(/,/g, ".")}` : `${item.netProfit.toLocaleString('en-US').replace(/,/g, ".")}`;
+                let colorStyle = item.isWin ? 'color: #2ecc71;' : 'color: #e74c3c;';
+                return `
+                    <div class="${itemClass}">
+                        <div style="font-size: 10px; color: #aaa;">${item.time}</div>
+                        <div>Ngựa: <b>${item.horseName}</b></div>
+                        <div>Cược: ${item.amount.toLocaleString('en-US').replace(/,/g, ".")} 🪙</div>
+                        <div style="${colorStyle} font-weight: bold;">Kết quả: ${profitText} 🪙</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function appendStatus(text) {
+            let resBox = document.getElementById('result');
+            let div = document.createElement('div');
+            div.className = 'status-badge';
+            div.innerHTML = text;
+            resBox.appendChild(div);
+            resBox.scrollTop = resBox.scrollHeight;
+        }
+
+        function sendLogin() {
+            let user = document.getElementById('loginUser').value.trim();
+            let pass = document.getElementById('loginPass').value.trim();
+            if(!user || !pass) { alert("Vui lòng nhập tài khoản và mật khẩu!"); return; }
+            socket.emit('login', { user, pass });
+        }
+
+        function sendEmailJsOtp() {
+            let user = document.getElementById('regUser').value.trim();
+            let email = document.getElementById('regEmail').value.trim();
+            let pass = document.getElementById('regPass').value.trim();
+            if (!user || !email || !pass) { alert("Vui lòng điền đủ thông tin!"); return; }
+
+            generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+            tempRegData = { user, email, pass };
+
+            emailjs.send('service_8kum0a3', 'template_r28zb4f', { to_email: email, to_name: user, message: generatedOtp })
+                .then(() => {
+                    alert("Đã gửi mã OTP!");
+                    document.getElementById('regFormStep1').style.display = 'none';
+                    document.getElementById('regFormStep2').style.display = 'flex';
+                }, (err) => { alert("Gửi email thất bại!"); });
+        }
+
+        function verifyEmailJsOtp() {
+            if (document.getElementById('regOtp').value.trim() === generatedOtp) {
+                socket.emit('registerNewUser', tempRegData);
+            } else { alert("Mã OTP sai!"); }
+        }
+
+        function toggleRegisterModal(show) {
+            document.getElementById('loginModal').style.display = show ? 'none' : 'flex';
+            document.getElementById('registerModal').style.display = show ? 'flex' : 'none';
+            document.getElementById('regFormStep1').style.display = 'flex';
+            document.getElementById('regFormStep2').style.display = 'none';
+        }
+
+        function confirmBet() {
+            if (!currentUser || isBetPlaced) return;
+            let horseIdx = parseInt(document.getElementById('betHorse').value);
+            let rawAmount = document.getElementById('betAmount').value.replace(/\./g, "").replace(/\D/g, "");
+            let amount = parseInt(rawAmount, 10) || 0;
+            if (amount <= 0) { alert("Tiền cược lỗi!"); return; }
+            lastPlacedBetAmount = amount;
+            lastPlacedHorseIdx = horseIdx;
+            socket.emit('placeBet', { username: currentUser, horseIdx, amount });
+        }
+
+        function showWinBearModal(amount) {
+            document.getElementById('win-bear-money').innerText = amount.toLocaleString('en-US').replace(/,/g, ".");
+            document.getElementById('win-bear-modal').style.display = 'flex';
+            
+            let audio = document.getElementById('piuBumAudio');
+            if(audio) {
+                audio.currentTime = 0;
+                audio.play().catch(e => {});
+            }
+        }
+
+        function closeWinBearModal() {
+            document.getElementById('win-bear-modal').style.display = 'none';
+        }
+
+        function adminActionMoney(type) {
+            let targetUser = document.getElementById('adminTargetUser').value.trim();
+            let rawAmount = document.getElementById('adminAmount').value.replace(/\./g, "").replace(/\D/g, "");
+            let amount = parseInt(rawAmount, 10) || 0;
+
+            if (!targetUser) {
+                alert("Vui lòng nhập tên tài khoản người chơi!");
+                return;
+            }
+            if (amount <= 0) {
+                alert("Vui lòng nhập số tiền hợp lệ!");
+                return;
+            }
+
+            socket.emit('adminAction', { 
+                adminUser: currentUser, 
+                type: type, 
+                targetUser: targetUser, 
+                amount: amount 
+            });
+            
+            let actionName = type === 'deposit' ? 'Nạp' : 'Rút';
+            alert(`Đã thực hiện ${actionName} ${amount.toLocaleString('en-US').replace(/,/g, ".")} 🪙 cho tài khoản ${targetUser}!`);
+        }
+
+        function adminSetWinnerChoice() {
+            socket.emit('adminAction', { adminUser: currentUser, type: 'setWinner', fixedWinner: document.getElementById('adminFixedWinner').value });
+        }
+
+        function renderWinAndLoseLeaderboards(roundSummary) {
+            let winBox = document.getElementById('leaderboardWin');
+            let loseBox = document.getElementById('leaderboardLose');
+
+            if (!roundSummary || roundSummary.length === 0) {
+                winBox.innerHTML = `<div style="color: #bdc3c7; text-align: center; padding-top: 20px;">Chưa có dữ liệu ván đấu nào...</div>`;
+                loseBox.innerHTML = `<div style="color: #bdc3c7; text-align: center; padding-top: 20px;">Chưa có dữ liệu ván đấu nào...</div>`;
+                return;
+            }
+
+            let winners = roundSummary.filter(item => item.netProfit > 0).sort((a, b) => b.netProfit - a.netProfit);
+            let losers = roundSummary.filter(item => item.netProfit < 0).sort((a, b) => a.netProfit - b.netProfit);
+
+            if (winners.length === 0) {
+                winBox.innerHTML = `<div style="color: #bdc3c7; text-align: center; padding-top: 20px;">Không có ai thắng ván này...</div>`;
+            } else {
+                winBox.innerHTML = winners.map((item, idx) => `
+                    <div class="leaderboard-item">
+                        <span>${idx+1}. ${item.username}</span>
+                        <span style="color: #2ecc71; font-weight: bold;">+${item.netProfit.toLocaleString('en-US').replace(/,/g, ".")} 🪙</span>
+                    </div>
+                `).join('');
+            }
+
+            if (losers.length === 0) {
+                loseBox.innerHTML = `<div style="color: #bdc3c7; text-align: center; padding-top: 20px;">Không có ai thua ván này...</div>`;
+            } else {
+                loseBox.innerHTML = losers.map((item, idx) => `
+                    <div class="leaderboard-item">
+                        <span>${idx+1}. ${item.username}</span>
+                        <span style="color: #e74c3c; font-weight: bold;">${item.netProfit.toLocaleString('en-US').replace(/,/g, ".")} 🪙</span>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function dismissGtaResults() {
+            document.getElementById('gta-results-overlay').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

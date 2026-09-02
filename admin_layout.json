@@ -1,0 +1,32 @@
+{
+  "leftPanel": {
+    "x": "183",
+    "y": "-9",
+    "width": "380px",
+    "height": "149px"
+  },
+  "bettingBox": {
+    "x": "173",
+    "y": "-9",
+    "width": "",
+    "height": ""
+  },
+  "adminPanel": {
+    "x": "164",
+    "y": "-10",
+    "width": "",
+    "height": ""
+  },
+  "leaderboardWinsBox": {
+    "x": "-1349",
+    "y": "-628",
+    "width": "",
+    "height": ""
+  },
+  "leaderboardLossesBox": {
+    "x": "758.5",
+    "y": "-945",
+    "width": "",
+    "height": ""
+  }
+}

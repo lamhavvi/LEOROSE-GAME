@@ -1,0 +1,34 @@
+{
+  "quinquin3012": {
+    "pass": "30122003Coco",
+    "email": "quinquin3012@gmail.com",
+    "balance": 42010900,
+    "wins": 2,
+    "losses": 0,
+    "isAdmin": true
+  },
+  "bola1705": {
+    "pass": "17052002",
+    "email": "laquoc147@gmail.com",
+    "balance": 42790,
+    "wins": 8,
+    "losses": 2,
+    "isAdmin": false,
+    "betHistory": [
+      {
+        "time": "07:00:08 2/9/2026",
+        "horseName": "1. Xích Thố",
+        "amount": 100,
+        "isWin": false,
+        "netProfit": -100
+      },
+      {
+        "time": "06:53:45 2/9/2026",
+        "horseName": "5. Bạch Long",
+        "amount": 10000,
+        "isWin": false,
+        "netProfit": -10000
+      }
+    ]
+  }
+}

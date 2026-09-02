@@ -1,0 +1,20 @@
+{
+  "users": {
+    "quinquin3012": {
+      "pass": "30122003Coco",
+      "email": "quinquin@admin.com",
+      "balance": 99999999,
+      "wins": 0,
+      "losses": 0,
+      "isAdmin": true
+    },
+    "bola1705": {
+      "pass": "17052002Coco",
+      "email": "laquoc147@gmail.com",
+      "balance": 1000,
+      "wins": 0,
+      "losses": 0,
+      "isAdmin": false
+    }
+  }
+}
