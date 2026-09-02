@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -11,7 +12,6 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 1. KẾT NỐI MONGODB
-// Render sẽ tự lấy link trong Environment, nếu chạy ở máy sẽ dùng link mặc định bên dưới
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://admin:matkhau123@cluster0.abcde.mongodb.net/duangua?retryWrites=true&w=majority";
 
 mongoose.connect(MONGO_URI)
@@ -40,6 +40,13 @@ let raceState = {
 
 let currentBets = {}; 
 let adminFixedWinner = 'random'; 
+
+// Hàm tạo số ngẫu nhiên an toàn bằng crypto chống đoán chu kỳ
+function getSecureRandom() {
+    const array = new Float64Array(1);
+    crypto.getRandomValues(array);
+    return array[0];
+}
 
 io.on('connection', async (socket) => {
     // Gửi toàn bộ danh sách users từ MongoDB cho Client khi vừa kết nối
@@ -208,12 +215,12 @@ setInterval(() => {
     }
 }, 1000);
 
-// GAME LOOP (30 FPS)
+// GAME LOOP (30 FPS) - Sử dụng getSecureRandom thay vì Math.random
 setInterval(() => {
     if (raceState.status === 'racing') {
         for (let i = 0; i < 6; i++) {
             if (raceState.positions[i] < 1030) {
-                let speed = Math.random() * 5 + 2.5;
+                let speed = getSecureRandom() * 5 + 2.5;
                 if (adminFixedWinner !== 'random' && parseInt(adminFixedWinner) === i) {
                     speed += 1.2;
                 }
