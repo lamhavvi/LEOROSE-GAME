@@ -41,11 +41,9 @@ let raceState = {
 let currentBets = {}; 
 let adminFixedWinner = 'random'; 
 
-// Hàm tạo số ngẫu nhiên an toàn bằng crypto chống đoán chu kỳ
+// Hàm tạo số ngẫu nhiên an toàn bằng crypto chống đoán chu kỳ (Đã sửa lỗi crash)
 function getSecureRandom() {
-    const array = new Float64Array(1);
-    crypto.getRandomValues(array);
-    return array[0];
+    return crypto.randomInt(0, 1000000) / 1000000;
 }
 
 io.on('connection', async (socket) => {
@@ -215,7 +213,7 @@ setInterval(() => {
     }
 }, 1000);
 
-// GAME LOOP (30 FPS) - Sử dụng getSecureRandom thay vì Math.random
+// GAME LOOP (30 FPS) - Sử dụng getSecureRandom an toàn
 setInterval(() => {
     if (raceState.status === 'racing') {
         for (let i = 0; i < 6; i++) {
