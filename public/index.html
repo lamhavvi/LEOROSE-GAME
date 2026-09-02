@@ -6,6 +6,9 @@
     <title>Trường Đua Ngựa 3D - Online Server</title>
     <script src="/socket.io/socket.io.js"></script>
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <!-- Nhúng Three.js và GLTFLoader để hiển thị mô hình 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script type="text/javascript">
         (function() {
             emailjs.init("dfcOxlMoT9v8k7thl");
@@ -178,12 +181,12 @@
                     <div class="track-bg"><div class="fence"></div></div>
                     <div class="finish-line"></div>
 
-                    <div class="lane"><div class="horse-container" id="h0"><span class="horse-icon">🐎</span><span class="horse-badge">1. Xích Thố</span></div></div>
-                    <div class="lane"><div class="horse-container" id="h1"><span class="horse-icon">🐎</span><span class="horse-badge">2. Bão Táp</span></div></div>
-                    <div class="lane"><div class="horse-container" id="h2"><span class="horse-icon">🐎</span><span class="horse-badge">3. Sấm Sét</span></div></div>
-                    <div class="lane"><div class="horse-container" id="h3"><span class="horse-icon">🐎</span><span class="horse-badge">4. Hỏa Tinh</span></div></div>
-                    <div class="lane"><div class="horse-container" id="h4"><span class="horse-icon">🐎</span><span class="horse-badge">5. Bạch Long</span></div></div>
-                    <div class="lane"><div class="horse-container" id="h5"><span class="horse-icon">🐎</span><span class="horse-badge">6. Hắc Phong</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h0"><div class="horse-3d-wrapper" id="horse-canvas-0"></div><span class="horse-badge">1. Xích Thố</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h1"><div class="horse-3d-wrapper" id="horse-canvas-1"></div><span class="horse-badge">2. Bão Táp</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h2"><div class="horse-3d-wrapper" id="horse-canvas-2"></div><span class="horse-badge">3. Sấm Sét</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h3"><div class="horse-3d-wrapper" id="horse-canvas-3"></div><span class="horse-badge">4. Hỏa Tinh</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h4"><div class="horse-3d-wrapper" id="horse-canvas-4"></div><span class="horse-badge">5. Bạch Long</span></div></div>
+                    <div class="lane"><div class="horse-container" id="h5"><div class="horse-3d-wrapper" id="horse-canvas-5"></div><span class="horse-badge">6. Hắc Phong</span></div></div>
 
                     <!-- MÀN HÌNH KẾT QUẢ GTA V RP -->
                     <div id="gta-results-overlay">
@@ -362,6 +365,54 @@
 
         const horseNames = ["1. Xích Thố", "2. Bão Táp", "3. Sấm Sét", "4. Hỏa Tinh", "5. Bạch Long", "6. Hắc Phong"];
 
+        // Khởi tạo mô hình 3D cho từng con ngựa trên đường đua
+        function init3DHorseModels() {
+            for (let i = 0; i < 6; i++) {
+                const container = document.getElementById(`horse-canvas-${i}`);
+                if (!container) continue;
+
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(45, 60 / 60, 0.1, 1000);
+                camera.position.set(0, 2, 4);
+
+                const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+                renderer.setSize(60, 60);
+                container.appendChild(renderer.domElement);
+
+                // Thêm ánh sáng
+                const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+                scene.add(ambientLight);
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+                dirLight.position.set(5, 10, 7);
+                scene.add(dirLight);
+
+                // Tải mô hình glTF của ngựa
+                const loader = new THREE.GLTFLoader();
+                loader.load('horse.gltf', function (gltf) {
+                    const model = gltf.scene;
+                    model.scale.set(0.8, 0.8, 0.8);
+                    scene.add(model);
+
+                    // Xử lý animation chạy nếu mô hình có hỗ trợ
+                    let mixer = new THREE.AnimationMixer(model);
+                    if (gltf.animations && gltf.animations.length > 0) {
+                        mixer.clipAction(gltf.animations[0]).play();
+                    }
+
+                    const clock = new THREE.Clock();
+                    function animate3D() {
+                        requestAnimationFrame(animate3D);
+                        if (mixer) mixer.update(clock.getDelta());
+                        renderer.render(scene, camera);
+                    }
+                    animate3D();
+                }, undefined, function (error) {
+                    // Fallback nếu chưa có file horse.gltf hiển thị icon thay thế
+                    container.innerHTML = '<span class="horse-icon" style="font-size:45px;">🐎</span>';
+                });
+            }
+        }
+
         function testPlayAudio() {
             let audio = document.getElementById('piuBumAudio');
             if(audio) {
@@ -400,6 +451,9 @@
         }
 
         document.addEventListener("DOMContentLoaded", () => {
+            // Khởi chạy render 3D mô hình ngựa
+            init3DHorseModels();
+
             ["loginUser", "loginPass"].forEach(id => {
                 let el = document.getElementById(id);
                 if(el) el.addEventListener("keypress", (e) => { if (e.key === "Enter") sendLogin(); });
@@ -427,7 +481,6 @@
             allUsersData = data.users;
         });
 
-        // Lắng nghe sự kiện nạp/rút tiền trực tiếp từ Admin (Cập nhật không cần F5)
         socket.on('balanceUpdated', (data) => {
             if (currentUser && allUsersData[currentUser]) {
                 allUsersData[currentUser].balance = data.newBalance;
@@ -758,3 +811,4 @@
     </script>
 </body>
 </html>
+[cite: 4]
