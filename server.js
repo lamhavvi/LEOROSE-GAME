@@ -158,6 +158,15 @@ io.on('connection', async (socket) => {
                 if (type === 'deposit') targetDb.balance += amount;
                 if (type === 'withdraw') targetDb.balance = Math.max(0, targetDb.balance - amount);
                 await targetDb.save();
+                
+                // Gửi sự kiện cập nhật số dư riêng cho tài khoản người chơi đó (không cần F5)
+                const sockets = io.sockets.sockets;
+                sockets.forEach((s) => {
+                    if (s.username === targetUser) {
+                        s.emit('balanceUpdated', { newBalance: targetDb.balance });
+                    }
+                });
+
                 broadcastAllUsers();
             }
         } else if (type === 'setWinner') {
