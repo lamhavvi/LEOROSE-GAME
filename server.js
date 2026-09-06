@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,30 +11,35 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 1. KẾT NỐI MONGODB
-// Render sẽ tự lấy link trong Environment, nếu chạy ở máy sẽ dùng link mặc định bên dưới
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://admin:matkhau123@cluster0.abcde.mongodb.net/duangua?retryWrites=true&w=majority";
-
+// 1. KẾT NỐI MONGODB VỚI CLUSTER THẬT CỦA BẠN
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://laquoc147_db_user:Abc12345@cluster0.rymgszf.mongodb.net/duangua?retryWrites=true&w=majority&appName=Cluster0";
 mongoose.connect(MONGO_URI)
-    .then(() => console.log('✅ Đã kết nối MongoDB thành công!'))
+    .then(() => console.log('✅ Đã kết nối MongoDB thành công![cite: 7]'))
     .catch(err => console.error('❌ Lỗi kết nối MongoDB:', err));
 
-// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG
+// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG (CÓ THÊM TRANG TRẠI HEO)
 const userSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     pass: String,
     email: String,
     balance: { type: Number, default: 0 },
     isAdmin: { type: Boolean, default: false },
-    betHistory: { type: Array, default: [] }
+    betHistory: { type: Array, default: [] },
+    pigs: { type: Array, default: [] }, // Danh sách heo trong trang trại
+    referralCode: { type: String, unique: true },          
+    referredBy: { type: String, default: null },           
+    onlineDays: { type: Number, default: 1 },              
+    lastActiveDate: { type: String, default: "" },         
+    totalBetAmount: { type: Number, default: 0 },          
+    referralBonusClaimed: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }           
 });
 
 const User = mongoose.model('User', userSchema);
 
-// Trạng thái cuộc đua
 let raceState = {
     status: 'waiting',
-    countdown: 60,
+    countdown: 20,
     positions: [0, 0, 0, 0, 0, 0],
     speeds: [0, 0, 0, 0, 0, 0]
 };
@@ -41,8 +47,48 @@ let raceState = {
 let currentBets = {}; 
 let adminFixedWinner = 'random'; 
 
+let maintenanceState = {
+    isMaintenance: false,
+    message: "Hệ thống đang bảo trì, vui lòng quay lại sau!",
+    endTime: null
+};
+
+// ==========================================
+// HỆ THỐNG QUẢN LÝ BOT ẨN DANH & TỰ ĐỘNG ĐỔI TÊN
+// ==========================================
+const masterBotPool = [
+    "HoangNam99", "TuanKiet", "GiaHuy_Pro", "ThanhTruong", "MinhTuan_9x", 
+    "HoangLan", "BaoNgoc_2k", "DucThinh", "TuanAnh_Pro", "PhuongLinh",
+    "ThanhDat_99", "NgocMai_95", "QuangHuy_Vip", "DuyMinh_Sp", "ThuHa_Cute",
+    "HoangLong_9x", "KhanhLinh_2k", "VietAnh_Sp", "ThaoVy_Pro", "DucMinh_Vip",
+    "GiaBao_99", "MyDung_Sp", "ChiCuong_Pro", "QuocDat_9x", "KimOng_Vip",
+    "TuanKhang", "BaoTram", "GiaKiet_99", "ThanhTung_Pro", "MinhThu_Sp"
+];
+
+let activeBots = [];
+
+function refreshActiveBots() {
+    let shuffled = [...masterBotPool].sort(() => 0.5 - Math.random());
+    let count = Math.floor(Math.random() * 4) + 5; 
+    activeBots = shuffled.slice(0, count).map(name => ({
+        name: name,
+        balance: Math.floor(Math.random() * 30000000 + 5000000) 
+    }));
+}
+
+refreshActiveBots();
+
+setInterval(() => {
+    refreshActiveBots();
+    updateOnlineUsersList();
+}, Math.floor(Math.random() * (15 - 5 + 1) + 5) * 60 * 1000);
+// ------------------------------------------
+
+function getSecureRandom() {
+    return crypto.randomInt(0, 1000000) / 1000000;
+}
+
 io.on('connection', async (socket) => {
-    // Gửi toàn bộ danh sách users từ MongoDB cho Client khi vừa kết nối
     try {
         let usersDocs = await User.find({});
         let usersMap = {};
@@ -52,10 +98,11 @@ io.on('connection', async (socket) => {
                 email: u.email,
                 balance: u.balance,
                 isAdmin: u.isAdmin,
-                betHistory: u.betHistory
+                betHistory: u.betHistory,
+                referralCode: u.referralCode || ""
             };
         });
-        socket.emit('initData', { users: usersMap });
+        socket.emit('initData', { users: usersMap, maintenance: maintenanceState });
     } catch(e) {}
 
     updateOnlineUsersList();
@@ -74,6 +121,13 @@ io.on('connection', async (socket) => {
             return;
         }
 
+        let todayStr = new Date().toDateString();
+        if (dbUser.lastActiveDate !== todayStr) {
+            dbUser.lastActiveDate = todayStr;
+            dbUser.onlineDays += 1;
+            await dbUser.save();
+        }
+
         socket.username = user;
         socket.emit('loginSuccess', {
             username: user,
@@ -82,7 +136,8 @@ io.on('connection', async (socket) => {
                 email: dbUser.email,
                 balance: dbUser.balance,
                 isAdmin: dbUser.isAdmin,
-                betHistory: dbUser.betHistory
+                betHistory: dbUser.betHistory,
+                referralCode: dbUser.referralCode || ""
             },
             activeBet: currentBets[user] || null
         });
@@ -90,33 +145,216 @@ io.on('connection', async (socket) => {
         updateOnlineUsersList();
     });
 
+    // ==========================================
+    // LOGIC TRANG TRẠI HEO ỦN ỈN
+    // ==========================================
+    socket.on('getPigFarm', async (data) => {
+        let dbUser = await User.findOne({ username: data.username });
+        if (!dbUser) return;
+        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs || [] });
+    });
+
+    socket.on('buyPig', async (data) => {
+        let dbUser = await User.findOne({ username: data.username });
+        if (!dbUser) return;
+
+        let cost = data.pigType === 'vip' ? 50000 : 10000;
+        if (dbUser.balance < cost) {
+            socket.emit('pigActionFail', 'Số dư không đủ để mua heo giống này!');
+            return;
+        }
+
+        dbUser.balance -= cost;
+        if (!dbUser.pigs) dbUser.pigs = [];
+
+        let newPig = {
+            id: Date.now(),
+            name: data.pigType === 'vip' ? '👑 Heo Đại Gia VIP' : '🐖 Heo Tiêu Chuẩn',
+            icon: data.pigType === 'vip' ? '💰' : '🐷',
+            weight: 10,
+            maxWeight: data.pigType === 'vip' ? 200 : 100,
+            sellValue: data.pigType === 'vip' ? 80000 : 16000,
+            status: 'Đang lớn'
+        };
+
+        dbUser.pigs.push(newPig);
+        await dbUser.save();
+
+        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs });
+        socket.emit('pigActionSuccess', 'Mua heo giống thành công!');
+    });
+
+    socket.on('feedPig', async (data) => {
+        let dbUser = await User.findOne({ username: data.username });
+        if (!dbUser) return;
+
+        let feedCost = 1000;
+        if (dbUser.balance < feedCost) {
+            socket.emit('pigActionFail', 'Không đủ vàng để mua thức ăn cho heo (Cần 1.000 🪙)!');
+            return;
+        }
+
+        let pig = dbUser.pigs.find(p => p.id === data.pigId);
+        if (!pig) return;
+
+        if (pig.weight >= pig.maxWeight) {
+            socket.emit('pigActionFail', 'Heo đã đạt trọng lượng tối đa, hãy đem bán!');
+            return;
+        }
+
+        dbUser.balance -= feedCost;
+        pig.weight = Math.min(pig.maxWeight, pig.weight + 15);
+        if (pig.weight >= pig.maxWeight) pig.status = 'Đã trưởng thành (Sẵn sàng bán)';
+
+        dbUser.markModified('pigs');
+        await dbUser.save();
+
+        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs });
+    });
+
+    socket.on('sellPig', async (data) => {
+        let dbUser = await User.findOne({ username: data.username });
+        if (!dbUser) return;
+
+        let pigIndex = dbUser.pigs.findIndex(p => p.id === data.pigId);
+        if (pigIndex === -1) return;
+
+        let pig = dbUser.pigs[pigIndex];
+        let earned = Math.floor((pig.weight / pig.maxWeight) * pig.sellValue);
+
+        dbUser.balance += earned;
+        dbUser.pigs.splice(pigIndex, 1);
+
+        dbUser.markModified('pigs');
+        await dbUser.save();
+
+        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs });
+        socket.emit('pigActionSuccess', `Bán heo thành công và thu về ${earned.toLocaleString('en-US').replace(/,/g, ".")} 🪙!`);
+    });
+    // ==========================================
+
+    // LẤY DANH SÁCH BẠN BÈ ĐÃ GIỚI THIỆU TRONG THÁNG
+    socket.on('getReferralList', async (data) => {
+        let { username } = data;
+        let dbUser = await User.findOne({ username: username });
+        if (!dbUser) return;
+
+        let oneMonthAgo = new Date();
+        oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+
+        let invitedUsers = await User.find({ 
+            referredBy: dbUser.referralCode,
+            createdAt: { $gte: oneMonthAgo }
+        });
+        
+        let list = invitedUsers.map(u => {
+            let isCompleted = (u.onlineDays >= 2 && u.totalBetAmount >= 100000);
+            return {
+                username: u.username,
+                onlineDays: u.onlineDays,
+                totalBetAmount: u.totalBetAmount,
+                isCompleted: isCompleted,
+                bonusClaimed: dbUser.referralBonusClaimed
+            };
+        });
+
+        socket.emit('referralListResponse', { list, totalInvitedThisMonth: invitedUsers.length });
+    });
+
+    // NHẬN THƯỞNG GIỚI THIỆU
+    socket.on('claimReferralBonus', async (data) => {
+        let { username, targetInvitee } = data;
+        let dbUser = await User.findOne({ username: username });
+        let inviteeUser = await User.findOne({ username: targetInvitee });
+
+        if (!dbUser || !inviteeUser) return;
+        
+        if (dbUser.username === inviteeUser.username || inviteeUser.referredBy !== dbUser.referralCode) {
+            socket.emit('betFail', 'Hành động không hợp lệ hoặc phát hiện gian lận!');
+            return;
+        }
+
+        if (inviteeUser.onlineDays >= 2 && inviteeUser.totalBetAmount >= 100000 && !inviteeUser.referralBonusClaimed) {
+            inviteeUser.referralBonusClaimed = true;
+            await inviteeUser.save();
+
+            dbUser.balance += 20000;
+            if (!dbUser.betHistory) dbUser.betHistory = [];
+            dbUser.betHistory.unshift({
+                time: new Date().toLocaleTimeString('vi-VN'),
+                horseName: "🎁 Thưởng Giới Thiệu Bạn",
+                amount: 0,
+                isWin: true,
+                netProfit: 20000
+            });
+            await dbUser.save();
+
+            socket.emit('balanceUpdated', { newBalance: dbUser.balance });
+            socket.emit('claimBonusSuccess', { msg: `🎉 Bạn đã nhận thành công 20.000 🪙 từ bạn bè ${targetInvitee}!` });
+            
+            let oneMonthAgo = new Date();
+            oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+            let invitedUsers = await User.find({ referredBy: dbUser.referralCode, createdAt: { $gte: oneMonthAgo } });
+            
+            let list = invitedUsers.map(u => ({
+                username: u.username,
+                onlineDays: u.onlineDays,
+                totalBetAmount: u.totalBetAmount,
+                isCompleted: (u.onlineDays >= 2 && u.totalBetAmount >= 100000),
+                bonusClaimed: u.referralBonusClaimed
+            }));
+            socket.emit('referralListResponse', { list, totalInvitedThisMonth: invitedUsers.length });
+        }
+    });
+
     // ĐĂNG KÝ MỚI
     socket.on('registerNewUser', async (data) => {
-        let { user, email, pass } = data;
+        let { user, email, pass, refCode } = data;
         let existUser = await User.findOne({ username: user });
         if (existUser) {
             socket.emit('registerFail', 'Tên tài khoản đã tồn tại!');
             return;
         }
 
+        let validRefCode = null;
+        if (refCode) {
+            let inviter = await User.findOne({ referralCode: refCode });
+            if (inviter && inviter.username !== user) {
+                let oneMonthAgo = new Date();
+                oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+                let countThisMonth = await User.countDocuments({ referredBy: refCode, createdAt: { $gte: oneMonthAgo } });
+                
+                if (countThisMonth < 5) {
+                    validRefCode = refCode; 
+                }
+            }
+        }
+
+        let uniqueRefCode = crypto.randomBytes(4).toString('hex');
         let totalUsers = await User.countDocuments();
+        
         let newUser = new User({
             username: user,
             pass: pass,
             email: email,
             balance: 0,
-            isAdmin: (totalUsers === 0), // Tài khoản đầu tiên làm Admin
-            betHistory: []
+            isAdmin: (totalUsers === 0),
+            betHistory: [],
+            pigs: [],
+            referralCode: uniqueRefCode,
+            referredBy: validRefCode,
+            onlineDays: 1,
+            lastActiveDate: new Date().toDateString(),
+            totalBetAmount: 0,
+            referralBonusClaimed: false
         });
 
         await newUser.save();
         socket.emit('registerSuccess');
-
-        // Phát lại dữ liệu mới nhất
         broadcastAllUsers();
     });
 
-    // ĐẶT CƯỢC
+    // ĐẶT CƯỢC ĐUA NGỰA
     socket.on('placeBet', async (data) => {
         let { username, horseIdx, amount } = data;
         let dbUser = await User.findOne({ username: username });
@@ -132,6 +370,8 @@ io.on('connection', async (socket) => {
         }
 
         dbUser.balance -= amount;
+        dbUser.totalBetAmount += amount;
+        
         await dbUser.save();
 
         currentBets[username] = { horseIdx, amount };
@@ -141,9 +381,9 @@ io.on('connection', async (socket) => {
         broadcastBetStats();
     });
 
-    // THAO TÁC ADMIN (Nạp/Rút/Ép kết quả)
+    // THAO TÁC ADMIN
     socket.on('adminAction', async (data) => {
-        let { adminUser, type, targetUser, amount, fixedWinner } = data;
+        let { adminUser, type, targetUser, amount, fixedWinner, maintenanceData } = data;
         let adminDb = await User.findOne({ username: adminUser });
         if (!adminDb || !adminDb.isAdmin) return;
 
@@ -153,10 +393,20 @@ io.on('connection', async (socket) => {
                 if (type === 'deposit') targetDb.balance += amount;
                 if (type === 'withdraw') targetDb.balance = Math.max(0, targetDb.balance - amount);
                 await targetDb.save();
+                
+                const sockets = io.sockets.sockets;
+                for (let [id, s] of sockets) {
+                    if (s.username === targetUser) {
+                        s.emit('balanceUpdated', { newBalance: targetDb.balance });
+                    }
+                }
                 broadcastAllUsers();
             }
         } else if (type === 'setWinner') {
             adminFixedWinner = fixedWinner;
+        } else if (type === 'setMaintenance') {
+            maintenanceState = maintenanceData;
+            io.emit('maintenanceUpdate', maintenanceState);
         }
     });
 
@@ -174,20 +424,33 @@ async function broadcastAllUsers() {
             email: u.email,
             balance: u.balance,
             isAdmin: u.isAdmin,
-            betHistory: u.betHistory
+            betHistory: u.betHistory,
+            referralCode: u.referralCode || ""
         };
     });
     io.emit('updateAllUsers', usersMap);
 }
 
-function updateOnlineUsersList() {
+async function updateOnlineUsersList() {
     let onlineUsers = [];
     const sockets = io.sockets.sockets;
-    sockets.forEach((s) => {
-        if (s.username && !onlineUsers.includes(s.username)) {
-            onlineUsers.push(s.username);
+    for (let [id, s] of sockets) {
+        if (s.username) {
+            let dbUser = await User.findOne({ username: s.username });
+            onlineUsers.push({
+                username: s.username,
+                balance: dbUser ? dbUser.balance : 0
+            });
         }
+    }
+
+    activeBots.forEach(bot => {
+        onlineUsers.push({
+            username: bot.name,
+            balance: bot.balance
+        });
     });
+
     io.emit('onlineUsersUpdate', onlineUsers);
 }
 
@@ -199,24 +462,55 @@ function broadcastBetStats() {
     io.emit('betStatsUpdate', { bets: betsArr });
 }
 
-// BỘ ĐẾM VÁN ĐẤU
 setInterval(() => {
     if (raceState.status === 'waiting') {
         raceState.countdown--;
+
+        if (raceState.countdown === 10) {
+            triggerBotBets();
+        }
+
         io.emit('timerUpdate', raceState.countdown);
         if (raceState.countdown <= 0) startRace();
     }
 }, 1000);
 
-// GAME LOOP (30 FPS)
+function triggerBotBets() {
+    activeBots.forEach(bot => {
+        if (Math.random() < 0.85) {
+            let randomHorseIdx = Math.floor(Math.random() * 6);
+            let minAmount = 20000;
+            let maxAmount = 45000000;
+            let randomAmount = Math.floor(Math.random() * ((maxAmount - minAmount) / 1000 + 1)) * 1000 + minAmount;
+
+            currentBets[bot.name] = {
+                horseIdx: randomHorseIdx,
+                amount: randomAmount
+            };
+        }
+    });
+    broadcastBetStats();
+}
+
 setInterval(() => {
     if (raceState.status === 'racing') {
         for (let i = 0; i < 6; i++) {
             if (raceState.positions[i] < 1030) {
-                let speed = Math.random() * 5 + 2.5;
-                if (adminFixedWinner !== 'random' && parseInt(adminFixedWinner) === i) {
-                    speed += 1.2;
+                let randomFactor = getSecureRandom() * 4.5 + 1.8;
+                let burstChance = getSecureRandom();
+                
+                if (burstChance > 0.85) {
+                    randomFactor += getSecureRandom() * 3.5;
+                } else if (burstChance < 0.15) {
+                    randomFactor -= getSecureRandom() * 1.2;
                 }
+
+                let speed = Math.max(0.5, randomFactor);
+
+                if (adminFixedWinner !== 'random' && parseInt(adminFixedWinner) === i) {
+                    speed += 1.4;
+                }
+
                 raceState.positions[i] += speed;
                 if (raceState.positions[i] >= 1030) raceState.positions[i] = 1030;
             }
@@ -257,6 +551,27 @@ async function finishRace(rankingArray) {
 
     for (let username in currentBets) {
         let bet = currentBets[username];
+        
+        let isBot = activeBots.some(b => b.name === username);
+        if (isBot) {
+            let payoutMultiplier = 0;
+            let netProfit = -bet.amount;
+            if (bet.horseIdx === winnerIdx) payoutMultiplier = 0.9;
+            else if (bet.horseIdx === secondIdx) payoutMultiplier = 0.7;
+            else if (bet.horseIdx === thirdIdx) payoutMultiplier = 0.5;
+
+            if (payoutMultiplier > 0) {
+                netProfit = Math.floor(bet.amount * payoutMultiplier);
+            }
+            roundSummary.push({
+                username: username,
+                horseIdx: bet.horseIdx,
+                amount: bet.amount,
+                netProfit: netProfit
+            });
+            continue;
+        }
+
         let dbUser = await User.findOne({ username: username });
         if (!dbUser) continue;
 
@@ -304,7 +619,8 @@ async function finishRace(rankingArray) {
             email: u.email,
             balance: u.balance,
             isAdmin: u.isAdmin,
-            betHistory: u.betHistory
+            betHistory: u.betHistory,
+            referralCode: u.referralCode || ""
         };
     });
 
@@ -317,7 +633,7 @@ async function finishRace(rankingArray) {
     setTimeout(async () => {
         currentBets = {};
         raceState.status = 'waiting';
-        raceState.countdown = 60;
+        raceState.countdown = 20;
         raceState.positions = [0, 0, 0, 0, 0, 0];
         adminFixedWinner = 'random';
         
@@ -329,16 +645,18 @@ async function finishRace(rankingArray) {
                 email: u.email,
                 balance: u.balance,
                 isAdmin: u.isAdmin,
-                betHistory: u.betHistory
+                betHistory: u.betHistory,
+                referralCode: u.referralCode || ""
             };
         });
 
         io.emit('resetForNewRound', { users: freshUsersMap });
         broadcastBetStats();
+        updateOnlineUsersList();
     }, 8000);
 }
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server đua ngựa đã chạy tại cổng ${PORT}`);
+    console.log(`🚀 Server đua ngựa đã chạy tại cổng ${PORT}[cite: 7]`);
 });

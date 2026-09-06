@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trang Trại Heo Ủn Ỉn - Online Server</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #132213; color: #fff; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 15px; }
+        
+        .top-bar { width: 100%; max-width: 1200px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 8px; border: 1px solid #27ae60; }
+        .user-info { font-size: 16px; color: #2ecc71; font-weight: bold; }
+        .balance-box { font-size: 18px; color: #f1c40f; font-weight: bold; }
+        
+        .back-btn { background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; text-decoration: none; }
+        .back-btn:hover { background: #c0392b; }
+
+        h1 { margin-bottom: 10px; color: #f1c40f; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); text-align: center; }
+        
+        .farm-container { width: 100%; max-width: 1200px; display: grid; grid-template-columns: 1fr 320px; gap: 20px; }
+        
+        .farm-yard { background: rgba(30, 80, 40, 0.85); border: 4px solid #27ae60; border-radius: 12px; padding: 20px; min-height: 450px; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.6); display: flex; flex-direction: column; }
+        .farm-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px dashed rgba(255,255,255,0.2); padding-bottom: 10px; }
+        
+        .pigs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 15px; overflow-y: auto; max-height: 400px; }
+        
+        .pig-card { background: rgba(0, 0, 0, 0.6); border: 2px solid #f39c12; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; transition: transform 0.2s; }
+        .pig-card:hover { transform: translateY(-4px); }
+        .pig-avatar { font-size: 50px; margin-bottom: 5px; }
+        .pig-name { font-size: 14px; font-weight: bold; color: #f1c40f; margin-bottom: 5px; }
+        .pig-info { font-size: 12px; color: #bdc3c7; width: 100%; margin-bottom: 10px; line-height: 1.4; text-align: left; background: rgba(255,255,255,0.05); padding: 6px; border-radius: 5px; }
+        
+        .pig-actions { display: flex; gap: 6px; width: 100%; }
+        .action-btn { flex: 1; padding: 6px; border: none; border-radius: 4px; font-weight: bold; font-size: 11px; cursor: pointer; color: white; }
+        .feed-btn { background: #27ae60; }
+        .feed-btn:hover { background: #219653; }
+        .sell-btn { background: #e67e22; }
+        .sell-btn:hover { background: #d35400; }
+
+        .sidebar-shop { display: flex; flex-direction: column; gap: 15px; }
+        .shop-box { background: rgba(0, 0, 0, 0.75); padding: 15px; border-radius: 10px; border: 1px solid #34495e; }
+        .shop-box h3 { color: #f1c40f; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 6px; margin-bottom: 10px; font-size: 15px; }
+        
+        .shop-item { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+        .shop-item-info { font-size: 12px; line-height: 1.3; }
+        .buy-pig-btn { background: #2980b9; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; }
+        .buy-pig-btn:hover { background: #2471a3; }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <div class="user-info">👤 Nông dân: <span id="current-username">Đang tải...</span></div>
+        <div class="balance-box">🪙 Số dư: <span id="money">0</span> 🪙</div>
+        <a href="index.html" class="back-btn">🐎 Về Cổng Chọn Game</a>
+    </div>
+
+    <h1>🐷 TRANG TRẠI HEO ỦN ỈN 🐷</h1>
+
+    <div class="farm-container">
+        <div class="farm-yard">
+            <div class="farm-header">
+                <h3>🏡 Chuồng Trại Của Tôi</h3>
+                <span style="font-size: 12px; color: #2ecc71;" id="pigCountText">Số lượng: 0 heo</span>
+            </div>
+            
+            <div class="pigs-grid" id="pigsGridContainer">
+                <div style="grid-column: 1 / -1; text-align: center; color: #bdc3c7; padding-top: 50px;">
+                    Chuồng trại đang trống. Hãy mua heo giống bên cạnh để bắt đầu nuôi!
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar-shop">
+            <div class="shop-box">
+                <h3>🛒 Chợ Giống Heo</h3>
+                
+                <div class="shop-item">
+                    <div class="shop-item-info">
+                        <b>🐖 Heo Giống Tiêu Chuẩn</b><br>
+                        Giá: <span style="color: #f1c40f;">10.000 🪙</span>
+                    </div>
+                    <button class="buy-pig-btn" onclick="buyPig('standard')">Mua</button>
+                </div>
+
+                <div class="shop-item">
+                    <div class="shop-item-info">
+                        <b>👑 Heo Đại Gia VIP</b><br>
+                        Giá: <span style="color: #f1c40f;">50.000 🪙</span>
+                    </div>
+                    <button class="buy-pig-btn" onclick="buyPig('vip')">Mua</button>
+                </div>
+            </div>
+
+            <div class="shop-box">
+                <h3>💡 Hướng Dẫn Nuôi Heo</h3>
+                <p style="font-size: 11px; color: #bdc3c7; line-height: 1.5;">
+                    1. Mua heo giống bỏ vào chuồng.<br>
+                    2. Bấm <b>Cho Ăn (1.000 🪙)</b> để heo tăng trọng lượng.<br>
+                    3. Khi heo đạt tối đa trọng lượng, đem <b>Bán</b> để thu về số vàng lớn!
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentUsername = localStorage.getItem("saved_username") || "";
+
+        window.addEventListener('DOMContentLoaded', () => {
+            if (!currentUsername) {
+                alert("Bạn chưa đăng nhập! Vui lòng đăng nhập ở trang Đua Ngựa trước.");
+                window.location.href = "index.html";
+                return;
+            }
+            document.getElementById('current-username').innerText = currentUsername;
+            socket.emit('getPigFarm', { username: currentUsername });
+        });
+
+        socket.on('pigFarmResponse', (data) => {
+            document.getElementById('money').innerText = data.balance.toLocaleString('en-US').replace(/,/g, ".");
+            renderPigs(data.pigs);
+        });
+
+        socket.on('pigActionSuccess', (msg) => {
+            alert(msg);
+        });
+
+        socket.on('pigActionFail', (msg) => {
+            alert(msg);
+        });
+
+        function buyPig(type) {
+            socket.emit('buyPig', { username: currentUsername, pigType: type });
+        }
+
+        function feedPig(pigId) {
+            socket.emit('feedPig', { username: currentUsername, pigId: pigId });
+        }
+
+        function sellPig(pigId) {
+            if (confirm("Bạn có chắc chắn muốn bán chú heo này không?")) {
+                socket.emit('sellPig', { username: currentUsername, pigId: pigId });
+            }
+        }
+
+        function renderPigs(pigs) {
+            let container = document.getElementById('pigsGridContainer');
+            let countText = document.getElementById('pigCountText');
+            countText.innerText = `Số lượng: ${pigs.length} heo`;
+
+            if (!pigs || pigs.length === 0) {
+                container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #bdc3c7; padding-top: 50px;">Chuồng trại đang trống. Hãy mua heo giống bên cạnh để bắt đầu nuôi!</div>`;
+                return;
+            }
+
+            container.innerHTML = pigs.map(pig => {
+                let percent = Math.min(100, Math.floor((pig.weight / pig.maxWeight) * 100));
+                return `
+                    <div class="pig-card">
+                        <div class="pig-avatar">${pig.icon}</div>
+                        <div class="pig-name">${pig.name}</div>
+                        <div class="pig-info">
+                            ⚖️ Trọng lượng: <b>${pig.weight} / ${pig.maxWeight} kg</b><br>
+                            📊 Tiến độ: <b>${percent}%</b><br>
+                            📌 Trạng thái: <span style="color: #2ecc71;">${pig.status}</span>
+                        </div>
+                        <div class="pig-actions">
+                            <button class="action-btn feed-btn" onclick="feedPig(${pig.id})">🍽️ Cho Ăn (1K)</button>
+                            <button class="action-btn sell-btn" onclick="sellPig(${pig.id})">💰 Bán</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    </script>
+</body>
+</html>
