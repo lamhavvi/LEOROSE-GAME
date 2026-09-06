@@ -489,11 +489,11 @@ async function finishRace(rankingArray) {
         let isWin = false;
         let netProfit = -bet.amount;
 
-        // KIỂM TRA ĐIỀU KIỆN ÉP THUA NẾU ĂN QUÁ NHIỀU (THẮNG > 5 LẦN TRƯỚC ĐÓ)
+        // KIỂM TRA ĐIỀU KIỆN ÉP THUA (NẾU ĐANG TRONG TRẠNG THÁI BỊ PHẠT)
         let forceLoseThisRound = false;
         if (dbUser.forceLoseCounter > 0) {
             forceLoseThisRound = true;
-            dbUser.forceLoseCounter -= 1; 
+            dbUser.forceLoseCounter -= 1; // Giảm số ván phạt xuống
         }
 
         if (!forceLoseThisRound) {
@@ -501,7 +501,7 @@ async function finishRace(rankingArray) {
             else if (bet.horseIdx === secondIdx) payoutMultiplier = 0.7;
             else if (bet.horseIdx === thirdIdx) payoutMultiplier = 0.5;
         } else {
-            payoutMultiplier = 0; // Bị ép thua
+            payoutMultiplier = 0; // Bị ép thua, không được nhận thưởng dù chọn đúng
         }
 
         if (payoutMultiplier > 0) {
@@ -511,13 +511,18 @@ async function finishRace(rankingArray) {
             netProfit = winBonus;
             isWin = true;
 
+            // Tăng chuỗi thắng liên tiếp
             dbUser.consecutiveWins += 1;
-            if (dbUser.consecutiveWins > 5) {
-                dbUser.forceLoseCounter = 2; // Kích hoạt ép thua 2 ván tiếp theo
-                dbUser.consecutiveWins = 0;  
-                console.log(`🛡️ Hệ thống tự động kích hoạt phòng vệ: Tài khoản ${dbUser.username} đã ăn quá nhiều, ép thua 2 ván tới!`);
+            
+            // THẮNG > 3 LẦN: KÍCH HOẠT ÉP THUA NGẪU NHIÊN TỪ 2 ĐẾN 5 VÁN
+            if (dbUser.consecutiveWins > 3) {
+                let randomLoseCount = Math.floor(Math.random() * (5 - 2 + 1)) + 2; 
+                dbUser.forceLoseCounter = randomLoseCount; 
+                dbUser.consecutiveWins = 0;  // Reset chuỗi thắng
+                console.log(`🛡️ Nhà cái can thiệp: Tài khoản ${dbUser.username} thắng liên tiếp quá 3 lần, bị ép thua ${randomLoseCount} ván tới!`);
             }
         } else {
+            // Nếu ván này thua hoặc bị ép thua xong, reset chuỗi thắng
             dbUser.consecutiveWins = 0;
         }
 
