@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json()); // Đọc dữ liệu JSON từ Webhook ngân hàng
+app.use(express.json());
 
 // 1. KẾT NỐI MONGODB VỚI CLUSTER THẬT CỦA BẠN
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://laquoc147_db_user:Abc12345@cluster0.rymgszf.mongodb.net/duangua?retryWrites=true&w=majority&appName=Cluster0";
@@ -19,7 +19,7 @@ mongoose.connect(MONGO_URI)
     .then(() => console.log('✅ Đã kết nối MongoDB thành công!'))
     .catch(err => console.error('❌ Lỗi kết nối MongoDB:', err));
 
-// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG (CÓ THÊM BIẾN CHỐNG THẮNG QUÁ NHIỀU)
+// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG (CÓ BIẾN CHỐNG THẮNG QUÁ NHIỀU)
 const userSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     pass: String,
@@ -55,66 +55,6 @@ let maintenanceState = {
     message: "Hệ thống đang bảo trì, vui lòng quay lại sau!",
     endTime: null
 };
-
-// ==========================================
-// API WEBHOOK TỰ ĐỘNG XỬ LÝ NẠP TIỀN QUA SEPAY (1 VNĐ = 1.33 Coin)
-// ==========================================
-app.post('/api/bank-webhook', async (req, res) => {
-    try {
-        let { content, transferAmount } = req.body;
-        
-        if (!content || !transferAmount) {
-            return res.status(400).json({ success: false, message: 'Thiếu dữ liệu giao dịch' });
-        }
-
-        let match = content.toUpperCase().match(/NAP\s+([A-Z0-9_]+)/);
-        if (!match) {
-            return res.status(200).json({ success: true, message: 'Không tìm thấy cú pháp hợp lệ' });
-        }
-
-        let username = match[1].toLowerCase();
-        let cashVND = parseInt(transferAmount, 10);
-
-        if (cashVND < 10000) {
-            return res.status(200).json({ success: true, message: 'Số tiền nạp tối thiểu là 10.000 VNĐ' });
-        }
-
-        let coinReceived = Math.floor(cashVND * 1.33);
-
-        let dbUser = await User.findOne({ username: { $regex: new RegExp(`^${username}$`, 'i') } });
-        if (!dbUser) {
-            return res.status(200).json({ success: true, message: 'Không tìm thấy tài khoản người chơi' });
-        }
-
-        dbUser.balance += coinReceived;
-
-        if (!dbUser.betHistory) dbUser.betHistory = [];
-        dbUser.betHistory.unshift({
-            time: new Date().toLocaleTimeString('vi-VN'),
-            horseName: `💳 Nạp ${cashVND.toLocaleString()} VNĐ (Tỷ lệ 1.33)`,
-            amount: cashVND,
-            isWin: true,
-            netProfit: coinReceived
-        });
-
-        await dbUser.save();
-
-        const sockets = io.sockets.sockets;
-        for (let [id, s] of sockets) {
-            if (s.username && s.username.toLowerCase() === dbUser.username.toLowerCase()) {
-                s.emit('balanceUpdated', { newBalance: dbUser.balance });
-                s.emit('depositSuccess', { msg: `🎉 Nạp thành công ${cashVND.toLocaleString()} VNĐ! Nhận được ${coinReceived.toLocaleString()} Coin.` });
-            }
-        }
-
-        console.log(`✅ Đã tự động cộng ${coinReceived} coin cho ${dbUser.username} từ ${cashVND} VNĐ.`);
-        return res.status(200).json({ success: true, message: 'Xử lý nạp tiền thành công' });
-
-    } catch (error) {
-        console.error('❌ Lỗi Webhook nạp tiền:', error);
-        return res.status(500).json({ success: false, message: 'Lỗi server' });
-    }
-});
 
 // ==========================================
 // HỆ THỐNG QUẢN LÝ BOT ẨN DANH & TỰ ĐỘNG ĐỔI TÊN
@@ -553,7 +493,7 @@ async function finishRace(rankingArray) {
         let forceLoseThisRound = false;
         if (dbUser.forceLoseCounter > 0) {
             forceLoseThisRound = true;
-            dbUser.forceLoseCounter -= 1; // Giảm số ván ép thua xuống
+            dbUser.forceLoseCounter -= 1; 
         }
 
         if (!forceLoseThisRound) {
@@ -561,7 +501,7 @@ async function finishRace(rankingArray) {
             else if (bet.horseIdx === secondIdx) payoutMultiplier = 0.7;
             else if (bet.horseIdx === thirdIdx) payoutMultiplier = 0.5;
         } else {
-            payoutMultiplier = 0; // Bị ép thua, không được nhận thưởng dù chọn đúng ngựa
+            payoutMultiplier = 0; // Bị ép thua
         }
 
         if (payoutMultiplier > 0) {
@@ -571,15 +511,13 @@ async function finishRace(rankingArray) {
             netProfit = winBonus;
             isWin = true;
 
-            // Tăng chuỗi thắng liên tiếp
             dbUser.consecutiveWins += 1;
             if (dbUser.consecutiveWins > 5) {
                 dbUser.forceLoseCounter = 2; // Kích hoạt ép thua 2 ván tiếp theo
-                dbUser.consecutiveWins = 0;  // Reset chuỗi thắng
+                dbUser.consecutiveWins = 0;  
                 console.log(`🛡️ Hệ thống tự động kích hoạt phòng vệ: Tài khoản ${dbUser.username} đã ăn quá nhiều, ép thua 2 ván tới!`);
             }
         } else {
-            // Nếu thua hoặc bị ép thua, reset lại chuỗi thắng liên tiếp
             dbUser.consecutiveWins = 0;
         }
 
