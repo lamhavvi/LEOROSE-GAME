@@ -13,11 +13,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // 1. KẾT NỐI MONGODB VỚI CLUSTER THẬT CỦA BẠN
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://laquoc147_db_user:Abc12345@cluster0.rymgszf.mongodb.net/duangua?retryWrites=true&w=majority&appName=Cluster0";
+
 mongoose.connect(MONGO_URI)
     .then(() => console.log('✅ Đã kết nối MongoDB thành công![cite: 7]'))
     .catch(err => console.error('❌ Lỗi kết nối MongoDB:', err));
 
-// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG (CÓ THÊM TRANG TRẠI HEO)
+// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG
 const userSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     pass: String,
@@ -25,7 +26,6 @@ const userSchema = new mongoose.Schema({
     balance: { type: Number, default: 0 },
     isAdmin: { type: Boolean, default: false },
     betHistory: { type: Array, default: [] },
-    pigs: { type: Array, default: [] }, // Danh sách heo trong trang trại
     referralCode: { type: String, unique: true },          
     referredBy: { type: String, default: null },           
     onlineDays: { type: Number, default: 1 },              
@@ -67,17 +67,20 @@ const masterBotPool = [
 
 let activeBots = [];
 
+// Hàm làm mới và đổi danh tính các bot ngẫu nhiên
 function refreshActiveBots() {
     let shuffled = [...masterBotPool].sort(() => 0.5 - Math.random());
-    let count = Math.floor(Math.random() * 4) + 5; 
+    let count = Math.floor(Math.random() * 4) + 5; // Từ 5 đến 8 bot online mỗi đợt
     activeBots = shuffled.slice(0, count).map(name => ({
         name: name,
-        balance: Math.floor(Math.random() * 30000000 + 5000000) 
+        balance: Math.floor(Math.random() * 30000000 + 5000000) // Số dư giả lập của bot từ 5M đến 35M
     }));
 }
 
+// Khởi tạo lần đầu
 refreshActiveBots();
 
+// Tự động thay đổi tên và làm mới bot ngẫu nhiên trong khoảng từ 5 đến 15 phút
 setInterval(() => {
     refreshActiveBots();
     updateOnlineUsersList();
@@ -145,95 +148,7 @@ io.on('connection', async (socket) => {
         updateOnlineUsersList();
     });
 
-    // ==========================================
-    // LOGIC TRANG TRẠI HEO ỦN ỈN
-    // ==========================================
-    socket.on('getPigFarm', async (data) => {
-        let dbUser = await User.findOne({ username: data.username });
-        if (!dbUser) return;
-        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs || [] });
-    });
-
-    socket.on('buyPig', async (data) => {
-        let dbUser = await User.findOne({ username: data.username });
-        if (!dbUser) return;
-
-        let cost = data.pigType === 'vip' ? 50000 : 10000;
-        if (dbUser.balance < cost) {
-            socket.emit('pigActionFail', 'Số dư không đủ để mua heo giống này!');
-            return;
-        }
-
-        dbUser.balance -= cost;
-        if (!dbUser.pigs) dbUser.pigs = [];
-
-        let newPig = {
-            id: Date.now(),
-            name: data.pigType === 'vip' ? '👑 Heo Đại Gia VIP' : '🐖 Heo Tiêu Chuẩn',
-            icon: data.pigType === 'vip' ? '💰' : '🐷',
-            weight: 10,
-            maxWeight: data.pigType === 'vip' ? 200 : 100,
-            sellValue: data.pigType === 'vip' ? 80000 : 16000,
-            status: 'Đang lớn'
-        };
-
-        dbUser.pigs.push(newPig);
-        await dbUser.save();
-
-        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs });
-        socket.emit('pigActionSuccess', 'Mua heo giống thành công!');
-    });
-
-    socket.on('feedPig', async (data) => {
-        let dbUser = await User.findOne({ username: data.username });
-        if (!dbUser) return;
-
-        let feedCost = 1000;
-        if (dbUser.balance < feedCost) {
-            socket.emit('pigActionFail', 'Không đủ vàng để mua thức ăn cho heo (Cần 1.000 🪙)!');
-            return;
-        }
-
-        let pig = dbUser.pigs.find(p => p.id === data.pigId);
-        if (!pig) return;
-
-        if (pig.weight >= pig.maxWeight) {
-            socket.emit('pigActionFail', 'Heo đã đạt trọng lượng tối đa, hãy đem bán!');
-            return;
-        }
-
-        dbUser.balance -= feedCost;
-        pig.weight = Math.min(pig.maxWeight, pig.weight + 15);
-        if (pig.weight >= pig.maxWeight) pig.status = 'Đã trưởng thành (Sẵn sàng bán)';
-
-        dbUser.markModified('pigs');
-        await dbUser.save();
-
-        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs });
-    });
-
-    socket.on('sellPig', async (data) => {
-        let dbUser = await User.findOne({ username: data.username });
-        if (!dbUser) return;
-
-        let pigIndex = dbUser.pigs.findIndex(p => p.id === data.pigId);
-        if (pigIndex === -1) return;
-
-        let pig = dbUser.pigs[pigIndex];
-        let earned = Math.floor((pig.weight / pig.maxWeight) * pig.sellValue);
-
-        dbUser.balance += earned;
-        dbUser.pigs.splice(pigIndex, 1);
-
-        dbUser.markModified('pigs');
-        await dbUser.save();
-
-        socket.emit('pigFarmResponse', { balance: dbUser.balance, pigs: dbUser.pigs });
-        socket.emit('pigActionSuccess', `Bán heo thành công và thu về ${earned.toLocaleString('en-US').replace(/,/g, ".")} 🪙!`);
-    });
-    // ==========================================
-
-    // LẤY DANH SÁCH BẠN BÈ ĐÃ GIỚI THIỆU TRONG THÁNG
+    // LẤY DANH SÁCH BẠN BÈ ĐÃ GIỚI THIỆU TRONG THÁNG (GIỚI HẠN TỐI ĐA 5 NGƯỜI)
     socket.on('getReferralList', async (data) => {
         let { username } = data;
         let dbUser = await User.findOne({ username: username });
@@ -269,6 +184,7 @@ io.on('connection', async (socket) => {
 
         if (!dbUser || !inviteeUser) return;
         
+        // CHỐNG GIAN LẬN: Chặn tự mời chính mình
         if (dbUser.username === inviteeUser.username || inviteeUser.referredBy !== dbUser.referralCode) {
             socket.emit('betFail', 'Hành động không hợp lệ hoặc phát hiện gian lận!');
             return;
@@ -307,7 +223,7 @@ io.on('connection', async (socket) => {
         }
     });
 
-    // ĐĂNG KÝ MỚI
+    // ĐĂNG KÝ MỚI (CHỐNG GIAN LẬN TỐI ĐA 5 NGƯỜI/THÁNG)
     socket.on('registerNewUser', async (data) => {
         let { user, email, pass, refCode } = data;
         let existUser = await User.findOne({ username: user });
@@ -340,7 +256,6 @@ io.on('connection', async (socket) => {
             balance: 0,
             isAdmin: (totalUsers === 0),
             betHistory: [],
-            pigs: [],
             referralCode: uniqueRefCode,
             referredBy: validRefCode,
             onlineDays: 1,
@@ -354,7 +269,7 @@ io.on('connection', async (socket) => {
         broadcastAllUsers();
     });
 
-    // ĐẶT CƯỢC ĐUA NGỰA
+    // ĐẶT CƯỢC
     socket.on('placeBet', async (data) => {
         let { username, horseIdx, amount } = data;
         let dbUser = await User.findOne({ username: username });
@@ -475,10 +390,12 @@ setInterval(() => {
     }
 }, 1000);
 
+// BOT ĐẶT CƯỢC NGẪU NHÂN TỪ 20.000 ĐẾN 45.000.000 🪙
 function triggerBotBets() {
     activeBots.forEach(bot => {
         if (Math.random() < 0.85) {
             let randomHorseIdx = Math.floor(Math.random() * 6);
+            
             let minAmount = 20000;
             let maxAmount = 45000000;
             let randomAmount = Math.floor(Math.random() * ((maxAmount - minAmount) / 1000 + 1)) * 1000 + minAmount;

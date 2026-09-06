@@ -142,7 +142,7 @@
     <div class="top-bar">
         <div class="user-info">👤 Tài khoản: <span id="current-username">Chưa đăng nhập</span></div>
         <div style="display: flex; gap: 10px; align-items: center;">
-            <button onclick="switchToOtherGame()" style="background: #9b59b6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">🎮 Chơi Game Khác</button>
+            <button onclick="testPlayAudio()" style="background: #f39c12; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">🔊 Test Âm Thanh</button>
             <div id="auth-btn-container"></div>
         </div>
     </div>
@@ -400,11 +400,11 @@
             }
         });
 
-        // Hàm chuyển sang trò chơi khác (thay thế link website game khác vào đây)
-        function switchToOtherGame() {
-            let targetUrl = "https://example.com"; // Thay đường dẫn game của bạn vào đây
-            if (confirm("Bạn có muốn chuyển sang trò chơi khác không?")) {
-                window.location.href = targetUrl;
+        function testPlayAudio() {
+            let audio = document.getElementById('piuBumAudio');
+            if(audio) {
+                audio.currentTime = 0;
+                audio.play().then(() => alert("Âm thanh hoạt động bình thường!")).catch(err => alert("Trình duyệt chặn phát âm thanh!"));
             }
         }
 
@@ -717,6 +717,7 @@
             }
         });
 
+        // Nhận dữ liệu danh sách bạn bè được mời và số lượng giới hạn tháng
         socket.on('referralListResponse', (data) => {
             let container = document.getElementById('refUserListContainer');
             let limitText = document.getElementById('monthlyLimitText');
