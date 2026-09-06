@@ -10,15 +10,16 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json()); // Đọc dữ liệu JSON từ Webhook ngân hàng
 
 // 1. KẾT NỐI MONGODB VỚI CLUSTER THẬT CỦA BẠN
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://laquoc147_db_user:Abc12345@cluster0.rymgszf.mongodb.net/duangua?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
-    .then(() => console.log('✅ Đã kết nối MongoDB thành công![cite: 7]'))
+    .then(() => console.log('✅ Đã kết nối MongoDB thành công!'))
     .catch(err => console.error('❌ Lỗi kết nối MongoDB:', err));
 
-// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG
+// 2. TẠO SCHEMA LƯU DỰ LIỆU NGƯỜI DÙNG (CÓ THÊM BIẾN CHỐNG THẮNG QUÁ NHIỀU)
 const userSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     pass: String,
@@ -32,6 +33,8 @@ const userSchema = new mongoose.Schema({
     lastActiveDate: { type: String, default: "" },         
     totalBetAmount: { type: Number, default: 0 },          
     referralBonusClaimed: { type: Boolean, default: false },
+    consecutiveWins: { type: Number, default: 0 },        // Đếm số lần thắng liên tiếp
+    forceLoseCounter: { type: Number, default: 0 },       // Số ván bị ép thua tiếp theo
     createdAt: { type: Date, default: Date.now }           
 });
 
@@ -54,6 +57,66 @@ let maintenanceState = {
 };
 
 // ==========================================
+// API WEBHOOK TỰ ĐỘNG XỬ LÝ NẠP TIỀN QUA SEPAY (1 VNĐ = 1.33 Coin)
+// ==========================================
+app.post('/api/bank-webhook', async (req, res) => {
+    try {
+        let { content, transferAmount } = req.body;
+        
+        if (!content || !transferAmount) {
+            return res.status(400).json({ success: false, message: 'Thiếu dữ liệu giao dịch' });
+        }
+
+        let match = content.toUpperCase().match(/NAP\s+([A-Z0-9_]+)/);
+        if (!match) {
+            return res.status(200).json({ success: true, message: 'Không tìm thấy cú pháp hợp lệ' });
+        }
+
+        let username = match[1].toLowerCase();
+        let cashVND = parseInt(transferAmount, 10);
+
+        if (cashVND < 10000) {
+            return res.status(200).json({ success: true, message: 'Số tiền nạp tối thiểu là 10.000 VNĐ' });
+        }
+
+        let coinReceived = Math.floor(cashVND * 1.33);
+
+        let dbUser = await User.findOne({ username: { $regex: new RegExp(`^${username}$`, 'i') } });
+        if (!dbUser) {
+            return res.status(200).json({ success: true, message: 'Không tìm thấy tài khoản người chơi' });
+        }
+
+        dbUser.balance += coinReceived;
+
+        if (!dbUser.betHistory) dbUser.betHistory = [];
+        dbUser.betHistory.unshift({
+            time: new Date().toLocaleTimeString('vi-VN'),
+            horseName: `💳 Nạp ${cashVND.toLocaleString()} VNĐ (Tỷ lệ 1.33)`,
+            amount: cashVND,
+            isWin: true,
+            netProfit: coinReceived
+        });
+
+        await dbUser.save();
+
+        const sockets = io.sockets.sockets;
+        for (let [id, s] of sockets) {
+            if (s.username && s.username.toLowerCase() === dbUser.username.toLowerCase()) {
+                s.emit('balanceUpdated', { newBalance: dbUser.balance });
+                s.emit('depositSuccess', { msg: `🎉 Nạp thành công ${cashVND.toLocaleString()} VNĐ! Nhận được ${coinReceived.toLocaleString()} Coin.` });
+            }
+        }
+
+        console.log(`✅ Đã tự động cộng ${coinReceived} coin cho ${dbUser.username} từ ${cashVND} VNĐ.`);
+        return res.status(200).json({ success: true, message: 'Xử lý nạp tiền thành công' });
+
+    } catch (error) {
+        console.error('❌ Lỗi Webhook nạp tiền:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// ==========================================
 // HỆ THỐNG QUẢN LÝ BOT ẨN DANH & TỰ ĐỘNG ĐỔI TÊN
 // ==========================================
 const masterBotPool = [
@@ -67,25 +130,21 @@ const masterBotPool = [
 
 let activeBots = [];
 
-// Hàm làm mới và đổi danh tính các bot ngẫu nhiên
 function refreshActiveBots() {
     let shuffled = [...masterBotPool].sort(() => 0.5 - Math.random());
-    let count = Math.floor(Math.random() * 4) + 5; // Từ 5 đến 8 bot online mỗi đợt
+    let count = Math.floor(Math.random() * 4) + 5; 
     activeBots = shuffled.slice(0, count).map(name => ({
         name: name,
-        balance: Math.floor(Math.random() * 30000000 + 5000000) // Số dư giả lập của bot từ 5M đến 35M
+        balance: Math.floor(Math.random() * 30000000 + 5000000) 
     }));
 }
 
-// Khởi tạo lần đầu
 refreshActiveBots();
 
-// Tự động thay đổi tên và làm mới bot ngẫu nhiên trong khoảng từ 5 đến 15 phút
 setInterval(() => {
     refreshActiveBots();
     updateOnlineUsersList();
 }, Math.floor(Math.random() * (15 - 5 + 1) + 5) * 60 * 1000);
-// ------------------------------------------
 
 function getSecureRandom() {
     return crypto.randomInt(0, 1000000) / 1000000;
@@ -110,7 +169,6 @@ io.on('connection', async (socket) => {
 
     updateOnlineUsersList();
 
-    // ĐĂNG NHẬP
     socket.on('login', async (data) => {
         let { user, pass } = data;
         let dbUser = await User.findOne({ username: user });
@@ -148,7 +206,6 @@ io.on('connection', async (socket) => {
         updateOnlineUsersList();
     });
 
-    // LẤY DANH SÁCH BẠN BÈ ĐÃ GIỚI THIỆU TRONG THÁNG (GIỚI HẠN TỐI ĐA 5 NGƯỜI)
     socket.on('getReferralList', async (data) => {
         let { username } = data;
         let dbUser = await User.findOne({ username: username });
@@ -176,7 +233,6 @@ io.on('connection', async (socket) => {
         socket.emit('referralListResponse', { list, totalInvitedThisMonth: invitedUsers.length });
     });
 
-    // NHẬN THƯỞNG GIỚI THIỆU
     socket.on('claimReferralBonus', async (data) => {
         let { username, targetInvitee } = data;
         let dbUser = await User.findOne({ username: username });
@@ -184,7 +240,6 @@ io.on('connection', async (socket) => {
 
         if (!dbUser || !inviteeUser) return;
         
-        // CHỐNG GIAN LẬN: Chặn tự mời chính mình
         if (dbUser.username === inviteeUser.username || inviteeUser.referredBy !== dbUser.referralCode) {
             socket.emit('betFail', 'Hành động không hợp lệ hoặc phát hiện gian lận!');
             return;
@@ -223,7 +278,6 @@ io.on('connection', async (socket) => {
         }
     });
 
-    // ĐĂNG KÝ MỚI (CHỐNG GIAN LẬN TỐI ĐA 5 NGƯỜI/THÁNG)
     socket.on('registerNewUser', async (data) => {
         let { user, email, pass, refCode } = data;
         let existUser = await User.findOne({ username: user });
@@ -261,7 +315,9 @@ io.on('connection', async (socket) => {
             onlineDays: 1,
             lastActiveDate: new Date().toDateString(),
             totalBetAmount: 0,
-            referralBonusClaimed: false
+            referralBonusClaimed: false,
+            consecutiveWins: 0,
+            forceLoseCounter: 0
         });
 
         await newUser.save();
@@ -269,7 +325,6 @@ io.on('connection', async (socket) => {
         broadcastAllUsers();
     });
 
-    // ĐẶT CƯỢC
     socket.on('placeBet', async (data) => {
         let { username, horseIdx, amount } = data;
         let dbUser = await User.findOne({ username: username });
@@ -296,7 +351,6 @@ io.on('connection', async (socket) => {
         broadcastBetStats();
     });
 
-    // THAO TÁC ADMIN
     socket.on('adminAction', async (data) => {
         let { adminUser, type, targetUser, amount, fixedWinner, maintenanceData } = data;
         let adminDb = await User.findOne({ username: adminUser });
@@ -390,7 +444,6 @@ setInterval(() => {
     }
 }, 1000);
 
-// BOT ĐẶT CƯỢC NGẪU NHÂN TỪ 20.000 ĐẾN 45.000.000 🪙
 function triggerBotBets() {
     activeBots.forEach(bot => {
         if (Math.random() < 0.85) {
@@ -496,9 +549,20 @@ async function finishRace(rankingArray) {
         let isWin = false;
         let netProfit = -bet.amount;
 
-        if (bet.horseIdx === winnerIdx) payoutMultiplier = 0.9;
-        else if (bet.horseIdx === secondIdx) payoutMultiplier = 0.7;
-        else if (bet.horseIdx === thirdIdx) payoutMultiplier = 0.5;
+        // KIỂM TRA ĐIỀU KIỆN ÉP THUA NẾU ĂN QUÁ NHIỀU (THẮNG > 5 LẦN TRƯỚC ĐÓ)
+        let forceLoseThisRound = false;
+        if (dbUser.forceLoseCounter > 0) {
+            forceLoseThisRound = true;
+            dbUser.forceLoseCounter -= 1; // Giảm số ván ép thua xuống
+        }
+
+        if (!forceLoseThisRound) {
+            if (bet.horseIdx === winnerIdx) payoutMultiplier = 0.9;
+            else if (bet.horseIdx === secondIdx) payoutMultiplier = 0.7;
+            else if (bet.horseIdx === thirdIdx) payoutMultiplier = 0.5;
+        } else {
+            payoutMultiplier = 0; // Bị ép thua, không được nhận thưởng dù chọn đúng ngựa
+        }
 
         if (payoutMultiplier > 0) {
             let winBonus = Math.floor(bet.amount * payoutMultiplier);
@@ -506,6 +570,17 @@ async function finishRace(rankingArray) {
             dbUser.balance += totalReturn;
             netProfit = winBonus;
             isWin = true;
+
+            // Tăng chuỗi thắng liên tiếp
+            dbUser.consecutiveWins += 1;
+            if (dbUser.consecutiveWins > 5) {
+                dbUser.forceLoseCounter = 2; // Kích hoạt ép thua 2 ván tiếp theo
+                dbUser.consecutiveWins = 0;  // Reset chuỗi thắng
+                console.log(`🛡️ Hệ thống tự động kích hoạt phòng vệ: Tài khoản ${dbUser.username} đã ăn quá nhiều, ép thua 2 ván tới!`);
+            }
+        } else {
+            // Nếu thua hoặc bị ép thua, reset lại chuỗi thắng liên tiếp
+            dbUser.consecutiveWins = 0;
         }
 
         if (!dbUser.betHistory) dbUser.betHistory = [];
@@ -575,5 +650,5 @@ async function finishRace(rankingArray) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server đua ngựa đã chạy tại cổng ${PORT}[cite: 7]`);
+    console.log(`🚀 Server đua ngựa đã chạy tại cổng ${PORT}`);
 });
